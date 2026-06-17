@@ -1,0 +1,211 @@
+<Window x:Class="EldoradoApp.Views.BoostingBotWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
+        xmlns:vm="clr-namespace:EldoradoApp.ViewModels"
+        mc:Ignorable="d"
+        Style="{StaticResource MaterialDesignWindow}"
+        TextElement.Foreground="{DynamicResource MaterialDesignBody}"
+        Background="{DynamicResource MaterialDesignPaper}"
+        FontFamily="{materialDesign:MaterialDesignFont}"
+        d:DataContext="{d:DesignInstance vm:BoostingBotViewModel}"
+        WindowStartupLocation="CenterOwner"
+        Title="Bot Auto-Offerta" Height="860" Width="1200">
+
+    <DockPanel>
+        <!-- App bar -->
+        <materialDesign:ColorZone DockPanel.Dock="Top" Mode="PrimaryMid" Padding="20,14"
+                                  materialDesign:ElevationAssist.Elevation="Dp4">
+            <Grid>
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <materialDesign:PackIcon Kind="Robot" Width="28" Height="28" VerticalAlignment="Center" />
+                    <TextBlock Text="BOT AUTO-OFFERTA · Boosting" FontSize="20" FontWeight="Bold"
+                               Margin="12,0,0,0" VerticalAlignment="Center" />
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                    <materialDesign:PackIcon Kind="Circle" Width="12" Height="12" VerticalAlignment="Center"
+                                             Margin="0,0,6,0">
+                        <materialDesign:PackIcon.Style>
+                            <Style TargetType="materialDesign:PackIcon">
+                                <Setter Property="Foreground" Value="#777" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsSignedIn}" Value="True">
+                                        <Setter Property="Foreground" Value="#69F0AE" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </materialDesign:PackIcon.Style>
+                    </materialDesign:PackIcon>
+                    <TextBlock Text="{Binding ConnectionStatus}" VerticalAlignment="Center" FontWeight="Medium" />
+                </StackPanel>
+            </Grid>
+        </materialDesign:ColorZone>
+
+        <!-- Footer -->
+        <Border DockPanel.Dock="Bottom" Background="#22000000" Padding="16,12">
+            <Grid>
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <Button Style="{StaticResource MaterialDesignRaisedButton}"
+                            Command="{Binding StartBotCommand}" IsEnabled="{Binding NotRunning}"
+                            Background="#2E7D32" BorderBrush="#2E7D32">
+                        <StackPanel Orientation="Horizontal">
+                            <materialDesign:PackIcon Kind="Play" VerticalAlignment="Center" />
+                            <TextBlock Text="Avvia bot" Margin="6,0,0,0" />
+                        </StackPanel>
+                    </Button>
+                    <Button Style="{StaticResource MaterialDesignOutlinedButton}" Margin="10,0,0,0"
+                            Command="{Binding StopBotCommand}" IsEnabled="{Binding IsRunning}">
+                        <StackPanel Orientation="Horizontal">
+                            <materialDesign:PackIcon Kind="Stop" VerticalAlignment="Center" />
+                            <TextBlock Text="Ferma" Margin="6,0,0,0" />
+                        </StackPanel>
+                    </Button>
+                </StackPanel>
+                <Button HorizontalAlignment="Right" Style="{StaticResource MaterialDesignRaisedButton}"
+                        Command="{Binding SaveCommand}" Content="Salva impostazioni" />
+            </Grid>
+        </Border>
+
+        <!-- Body -->
+        <Grid Margin="16">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="2*" />
+                <ColumnDefinition Width="1.1*" />
+            </Grid.ColumnDefinitions>
+
+            <!-- Left: config -->
+            <Grid Grid.Column="0" Margin="0,0,10,0">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <!-- Connection -->
+                <materialDesign:Card Grid.Row="0" Padding="16" Margin="0,0,0,10"
+                                     materialDesign:ElevationAssist.Elevation="Dp2">
+                    <StackPanel>
+                        <TextBlock Text="ACCOUNT ELDORADO" FontWeight="Bold" Opacity="0.7" FontSize="12"
+                                   Margin="0,0,0,10" />
+                        <WrapPanel>
+                            <TextBox Width="260" Margin="0,0,12,8"
+                                     Style="{StaticResource MaterialDesignFloatingHintTextBox}"
+                                     materialDesign:HintAssist.Hint="Email venditore"
+                                     Text="{Binding Email, UpdateSourceTrigger=PropertyChanged}" />
+                            <PasswordBox x:Name="PasswordBox" Width="200" Margin="0,0,12,8"
+                                         Style="{StaticResource MaterialDesignFloatingHintPasswordBox}"
+                                         materialDesign:HintAssist.Hint="Password" />
+                            <Button Style="{StaticResource MaterialDesignRaisedButton}" Margin="0,0,8,8"
+                                    Click="SignIn_Click" IsEnabled="{Binding NotSignedIn}" Content="Accedi" />
+                            <Button Style="{StaticResource MaterialDesignFlatButton}" Margin="0,0,0,8"
+                                    Command="{Binding SignOutCommand}" IsEnabled="{Binding IsSignedIn}"
+                                    Content="Esci" />
+                        </WrapPanel>
+                        <TextBlock TextWrapping="Wrap" Opacity="0.6" FontSize="11" Margin="0,4,0,0"
+                                   Text="Login Cognito (email/password). La password è cifrata con Windows DPAPI. Il bot deve essere autorizzato da Eldorado (api@eldorado.gg)." />
+                    </StackPanel>
+                </materialDesign:Card>
+
+                <!-- Bot controls -->
+                <materialDesign:Card Grid.Row="1" Padding="16" Margin="0,0,0,10"
+                                     materialDesign:ElevationAssist.Elevation="Dp2">
+                    <StackPanel>
+                        <TextBlock Text="CONTROLLO BOT" FontWeight="Bold" Opacity="0.7" FontSize="12"
+                                   Margin="0,0,0,10" />
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                            <ToggleButton Style="{StaticResource MaterialDesignSwitchToggleButton}"
+                                          IsChecked="{Binding DryRun}" />
+                            <TextBlock Text="Dry-run (simula, non invia)" VerticalAlignment="Center"
+                                       Margin="10,0,0,0" />
+                            <TextBlock VerticalAlignment="Center" Margin="20,0,0,0" Opacity="0.6"
+                                       Text="Usa «Avvia bot» in basso per partire/fermare." />
+                        </StackPanel>
+                        <WrapPanel Margin="0,4,0,0">
+                            <TextBox Width="120" Margin="0,0,16,8"
+                                     Style="{StaticResource MaterialDesignFloatingHintTextBox}"
+                                     materialDesign:HintAssist.Hint="Intervallo (s)"
+                                     Text="{Binding PollIntervalSeconds}" />
+                            <TextBox Width="100" Margin="0,0,16,8"
+                                     Style="{StaticResource MaterialDesignFloatingHintTextBox}"
+                                     materialDesign:HintAssist.Hint="Valuta" Text="{Binding Currency}" />
+                            <TextBox Width="110" Margin="0,0,16,8"
+                                     Style="{StaticResource MaterialDesignFloatingHintTextBox}"
+                                     materialDesign:HintAssist.Hint="Tariffa fissa" Text="{Binding FlatFee}" />
+                            <TextBox Width="180" Margin="0,0,16,8"
+                                     Style="{StaticResource MaterialDesignFloatingHintTextBox}"
+                                     materialDesign:HintAssist.Hint="Game ID (Valorant)" Text="{Binding GameId}" />
+                            <TextBox Width="200" Margin="0,0,0,8"
+                                     Style="{StaticResource MaterialDesignFloatingHintTextBox}"
+                                     materialDesign:HintAssist.Hint="Regioni accettate (es. EU, NA)"
+                                     Text="{Binding AcceptedRegionsText}" />
+                        </WrapPanel>
+                        <Border Background="#33FF5252" CornerRadius="4" Padding="10,6" Margin="0,6,0,0"
+                                Visibility="{Binding DryRun, Converter={StaticResource InverseBoolToVis}}">
+                            <StackPanel Orientation="Horizontal">
+                                <materialDesign:PackIcon Kind="Alert" VerticalAlignment="Center" Foreground="#FF8A80" />
+                                <TextBlock Margin="8,0,0,0" VerticalAlignment="Center" Foreground="#FFCDD2"
+                                           Text="DRY-RUN DISATTIVATO: con bot attivo le offerte vengono inviate davvero." />
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </materialDesign:Card>
+
+                <!-- Per-tier pricing -->
+                <materialDesign:Card Grid.Row="2" Padding="12" materialDesign:ElevationAssist.Elevation="Dp2">
+                    <DockPanel>
+                        <TextBlock DockPanel.Dock="Top" Text="TARIFFA E TEMPO PER DIVISIONE (per rank)"
+                                   FontWeight="Bold" Opacity="0.7" FontSize="12" Margin="4,2,4,8" />
+                        <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Opacity="0.6" FontSize="11"
+                                   Margin="4,0,4,8"
+                                   Text="Prezzo e ore per ogni divisione superata, per tier. Il bot somma sulle divisioni del range e arrotonda il tempo al valore di consegna più vicino. Spunta 'Escludi' per rifiutare un rank." />
+                        <DataGrid ItemsSource="{Binding TierRows}" AutoGenerateColumns="False"
+                                  CanUserAddRows="False" CanUserDeleteRows="False"
+                                  HeadersVisibility="Column" GridLinesVisibility="Horizontal">
+                            <DataGrid.Columns>
+                                <DataGridTemplateColumn Header="Rank" Width="140" IsReadOnly="True">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <Border CornerRadius="4" Padding="10,4" Margin="2"
+                                                    HorizontalAlignment="Left"
+                                                    Background="{Binding Tier, Converter={StaticResource RankToBrush}}">
+                                                <TextBlock Text="{Binding Tier}" FontWeight="SemiBold" Foreground="#111" />
+                                            </Border>
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
+                                <DataGridTextColumn Header="Prezzo / divisione" Width="*"
+                                                    Binding="{Binding PricePerDivision, StringFormat=N2}" />
+                                <DataGridTextColumn Header="Ore / divisione" Width="*"
+                                                    Binding="{Binding HoursPerDivision}" />
+                                <DataGridCheckBoxColumn Header="Escludi" Width="80"
+                                                        Binding="{Binding Excluded, UpdateSourceTrigger=PropertyChanged}" />
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </DockPanel>
+                </materialDesign:Card>
+            </Grid>
+
+            <!-- Right: activity log -->
+            <materialDesign:Card Grid.Column="1" Padding="12" materialDesign:ElevationAssist.Elevation="Dp2">
+                <DockPanel>
+                    <TextBlock DockPanel.Dock="Top" Text="ATTIVITÀ LIVE" FontWeight="Bold" Opacity="0.7"
+                               FontSize="12" Margin="4,2,4,8" />
+                    <ListBox ItemsSource="{Binding Activity}" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate DataType="{x:Type vm:AutoOfferLogItem}">
+                                <StackPanel Orientation="Horizontal" Margin="0,1">
+                                    <TextBlock Text="{Binding Time}" Opacity="0.5" Margin="0,0,8,0"
+                                               FontFamily="Consolas" />
+                                    <TextBlock Text="{Binding Message}" Foreground="{Binding Color}"
+                                               TextWrapping="Wrap" MaxWidth="320" />
+                                </StackPanel>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </DockPanel>
+            </materialDesign:Card>
+        </Grid>
+    </DockPanel>
+</Window>
