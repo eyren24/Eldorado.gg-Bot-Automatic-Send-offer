@@ -69,35 +69,27 @@
                                         <ColumnDefinition Width="Auto" />
                                     </Grid.ColumnDefinitions>
 
-                                    <Border Grid.Column="0" Background="{Binding DesiredRankBrush}" />
+                                    <Border Grid.Column="0" Background="{Binding StatusBrush}" />
 
-                                    <!-- Rank badges -->
-                                    <StackPanel Grid.Column="1" Orientation="Horizontal"
-                                                VerticalAlignment="Center" Margin="18,0">
-                                        <Border Background="{Binding CurrentRankBrush}" CornerRadius="4" Padding="10,5">
-                                            <TextBlock Text="{Binding CurrentRank}" FontWeight="SemiBold" Foreground="#111" />
-                                        </Border>
-                                        <materialDesign:PackIcon Kind="ArrowRightBold" VerticalAlignment="Center"
-                                                                 Margin="8,0" Opacity="0.7" />
-                                        <Border Background="{Binding DesiredRankBrush}" CornerRadius="4" Padding="10,5">
-                                            <TextBlock Text="{Binding DesiredRank}" FontWeight="SemiBold" Foreground="#111" />
-                                        </Border>
-                                    </StackPanel>
+                                    <!-- Category chip -->
+                                    <Border Grid.Column="1" Background="#22FFFFFF" CornerRadius="6" Padding="14,7"
+                                            VerticalAlignment="Center" Margin="18,0">
+                                        <StackPanel Orientation="Horizontal">
+                                            <materialDesign:PackIcon Kind="SwordCross" Width="18" Height="18"
+                                                                     Opacity="0.8" VerticalAlignment="Center" />
+                                            <TextBlock Text="{Binding CategoryTitle}" Margin="8,0,0,0"
+                                                       FontWeight="SemiBold" VerticalAlignment="Center" />
+                                        </StackPanel>
+                                    </Border>
 
-                                    <!-- Buyer + category -->
+                                    <!-- Buyer -->
                                     <StackPanel Grid.Column="2" VerticalAlignment="Center" Margin="22,0">
                                         <StackPanel Orientation="Horizontal">
                                             <materialDesign:PackIcon Kind="AccountCircle" Width="18" Height="18"
                                                                      Opacity="0.7" VerticalAlignment="Center" />
                                             <TextBlock Text="{Binding Buyer}" Margin="6,0,0,0" FontWeight="Bold"
                                                        VerticalAlignment="Center" />
-                                            <Border Margin="10,0,0,0" Background="#33FFFFFF" CornerRadius="3"
-                                                    Padding="6,2" VerticalAlignment="Center">
-                                                <TextBlock Text="{Binding Region}" FontSize="11" />
-                                            </Border>
                                         </StackPanel>
-                                        <TextBlock Text="{Binding CategoryTitle}" Opacity="0.6" Margin="0,5,0,0"
-                                                   TextTrimming="CharacterEllipsis" />
                                     </StackPanel>
 
                                     <!-- Created -->

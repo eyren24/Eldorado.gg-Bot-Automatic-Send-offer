@@ -75,20 +75,26 @@
                 <ColumnDefinition Width="1.1*" />
             </Grid.ColumnDefinitions>
 
-            <!-- Left: config -->
-            <Grid Grid.Column="0" Margin="0,0,10,0">
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="*" />
-                </Grid.RowDefinitions>
+            <!-- Left: config (scrollable so the rank grid is always reachable) -->
+            <ScrollViewer Grid.Column="0" Margin="0,0,10,0"
+                          VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                <StackPanel>
 
                 <!-- Connection -->
-                <materialDesign:Card Grid.Row="0" Padding="16" Margin="0,0,0,10"
+                <materialDesign:Card Padding="16" Margin="0,0,0,10"
                                      materialDesign:ElevationAssist.Elevation="Dp2">
                     <StackPanel>
-                        <TextBlock Text="ACCOUNT ELDORADO" FontWeight="Bold" Opacity="0.7" FontSize="12"
-                                   Margin="0,0,0,10" />
+                        <Grid Margin="0,0,0,12">
+                            <TextBlock Text="ACCOUNT ELDORADO" FontWeight="Bold" Opacity="0.7" FontSize="12"
+                                       VerticalAlignment="Center" />
+                            <Button HorizontalAlignment="Right" Style="{StaticResource MaterialDesignFlatButton}"
+                                    Command="{Binding SignOutCommand}" IsEnabled="{Binding IsSignedIn}"
+                                    Content="Esci" Padding="8,2" />
+                        </Grid>
+
+                        <!-- Email + password -->
+                        <TextBlock Text="Accesso con email e password" FontWeight="SemiBold" Opacity="0.75"
+                                   FontSize="12" Margin="0,0,0,6" />
                         <WrapPanel>
                             <TextBox Width="260" Margin="0,0,12,8"
                                      Style="{StaticResource MaterialDesignFloatingHintTextBox}"
@@ -99,17 +105,67 @@
                                          materialDesign:HintAssist.Hint="Password" />
                             <Button Style="{StaticResource MaterialDesignRaisedButton}" Margin="0,0,8,8"
                                     Click="SignIn_Click" IsEnabled="{Binding NotSignedIn}" Content="Accedi" />
-                            <Button Style="{StaticResource MaterialDesignFlatButton}" Margin="0,0,0,8"
-                                    Command="{Binding SignOutCommand}" IsEnabled="{Binding IsSignedIn}"
-                                    Content="Esci" />
                         </WrapPanel>
-                        <TextBlock TextWrapping="Wrap" Opacity="0.6" FontSize="11" Margin="0,4,0,0"
-                                   Text="Login Cognito (email/password). La password è cifrata con Windows DPAPI. Il bot deve essere autorizzato da Eldorado (api@eldorado.gg)." />
+
+                        <!-- Divider -->
+                        <Grid Margin="0,6,0,10">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Separator Grid.Column="0" VerticalAlignment="Center" Opacity="0.4" />
+                            <TextBlock Grid.Column="1" Text="oppure" Opacity="0.5" FontSize="11" Margin="10,0" />
+                            <Separator Grid.Column="2" VerticalAlignment="Center" Opacity="0.4" />
+                        </Grid>
+
+                        <!-- Google -->
+                        <TextBlock Text="Accesso con Google" FontWeight="SemiBold" Opacity="0.75"
+                                   FontSize="12" Margin="0,0,0,6" />
+                        <Button HorizontalAlignment="Left" Style="{StaticResource MaterialDesignOutlinedButton}"
+                                Click="SignInGoogle_Click" IsEnabled="{Binding NotSignedIn}">
+                            <StackPanel Orientation="Horizontal">
+                                <materialDesign:PackIcon Kind="Google" VerticalAlignment="Center" />
+                                <TextBlock Text="Accedi con Google" Margin="8,0,0,0" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </Button>
+
+                        <!-- Divider -->
+                        <Grid Margin="0,10,0,10">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Separator Grid.Column="0" VerticalAlignment="Center" Opacity="0.4" />
+                            <TextBlock Grid.Column="1" Text="oppure" Opacity="0.5" FontSize="11" Margin="10,0" />
+                            <Separator Grid.Column="2" VerticalAlignment="Center" Opacity="0.4" />
+                        </Grid>
+
+                        <!-- Manual token (paste IdToken from a logged-in browser) -->
+                        <TextBlock Text="Accesso con token (incolla il JWT dal browser)" FontWeight="SemiBold"
+                                   Opacity="0.75" FontSize="12" Margin="0,0,0,6" />
+                        <TextBox Style="{StaticResource MaterialDesignOutlinedTextBox}"
+                                 materialDesign:HintAssist.Hint="Incolla qui __Host-EldoradoIdToken (eyJ…)"
+                                 Text="{Binding ManualTokenInput, UpdateSourceTrigger=PropertyChanged}"
+                                 AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"
+                                 MinHeight="60" MaxHeight="110" />
+                        <Button HorizontalAlignment="Left" Margin="0,8,0,0"
+                                Style="{StaticResource MaterialDesignRaisedButton}"
+                                Command="{Binding UseManualTokenCommand}">
+                            <StackPanel Orientation="Horizontal">
+                                <materialDesign:PackIcon Kind="Key" VerticalAlignment="Center" />
+                                <TextBlock Text="Usa token" Margin="8,0,0,0" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </Button>
+
+                        <TextBlock TextWrapping="Wrap" Opacity="0.6" FontSize="11" Margin="0,10,0,0"
+                                   Text="Il token vale ~30 min: quando scade, riprendilo dal browser (DevTools → Network → richiesta /api → header Cookie → __Host-EldoradoIdToken) e reincollalo. È cifrato con Windows DPAPI. Google ed email/password sono pronti ma dipendono dalla configurazione di Eldorado." />
                     </StackPanel>
                 </materialDesign:Card>
 
                 <!-- Bot controls -->
-                <materialDesign:Card Grid.Row="1" Padding="16" Margin="0,0,0,10"
+                <materialDesign:Card Padding="16" Margin="0,0,0,10"
                                      materialDesign:ElevationAssist.Elevation="Dp2">
                     <StackPanel>
                         <TextBlock Text="CONTROLLO BOT" FontWeight="Bold" Opacity="0.7" FontSize="12"
@@ -130,17 +186,26 @@
                             <TextBox Width="100" Margin="0,0,16,8"
                                      Style="{StaticResource MaterialDesignFloatingHintTextBox}"
                                      materialDesign:HintAssist.Hint="Valuta" Text="{Binding Currency}" />
-                            <TextBox Width="110" Margin="0,0,16,8"
-                                     Style="{StaticResource MaterialDesignFloatingHintTextBox}"
-                                     materialDesign:HintAssist.Hint="Tariffa fissa" Text="{Binding FlatFee}" />
-                            <TextBox Width="180" Margin="0,0,16,8"
-                                     Style="{StaticResource MaterialDesignFloatingHintTextBox}"
-                                     materialDesign:HintAssist.Hint="Game ID (Valorant)" Text="{Binding GameId}" />
+                            <ComboBox Width="200" Margin="0,0,16,8"
+                                      Style="{StaticResource MaterialDesignFloatingHintComboBox}"
+                                      materialDesign:HintAssist.Hint="Gioco"
+                                      ItemsSource="{Binding Games}" SelectedItem="{Binding SelectedGame}"
+                                      DisplayMemberPath="Name" />
                             <TextBox Width="200" Margin="0,0,0,8"
                                      Style="{StaticResource MaterialDesignFloatingHintTextBox}"
                                      materialDesign:HintAssist.Hint="Regioni accettate (es. EU, NA)"
                                      Text="{Binding AcceptedRegionsText}" />
                         </WrapPanel>
+
+                        <!-- Custom message -->
+                        <TextBox Margin="0,4,0,0"
+                                 Style="{StaticResource MaterialDesignOutlinedTextBox}"
+                                 materialDesign:HintAssist.Hint="Messaggio personalizzato (modificabile in qualsiasi momento)"
+                                 Text="{Binding OfferMessage, UpdateSourceTrigger=PropertyChanged}"
+                                 AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"
+                                 MinHeight="56" MaxHeight="120" />
+                        <TextBlock TextWrapping="Wrap" Opacity="0.6" FontSize="11" Margin="0,4,0,0"
+                                   Text="Nota: l'API ufficiale di Eldorado non permette di inviare un messaggio testuale automatico (la chat è TalkJS, esterna). Il messaggio viene mostrato nel log dell'offerta e potrai incollarlo nella chat del compratore." />
                         <Border Background="#33FF5252" CornerRadius="4" Padding="10,6" Margin="0,6,0,0"
                                 Visibility="{Binding DryRun, Converter={StaticResource InverseBoolToVis}}">
                             <StackPanel Orientation="Horizontal">
@@ -152,40 +217,50 @@
                     </StackPanel>
                 </materialDesign:Card>
 
-                <!-- Per-tier pricing -->
-                <materialDesign:Card Grid.Row="2" Padding="12" materialDesign:ElevationAssist.Elevation="Dp2">
+                <!-- Per-category price list -->
+                <materialDesign:Card Padding="12" materialDesign:ElevationAssist.Elevation="Dp2">
                     <DockPanel>
-                        <TextBlock DockPanel.Dock="Top" Text="TARIFFA E TEMPO PER DIVISIONE (per rank)"
+                        <TextBlock DockPanel.Dock="Top" Text="LISTINO PER CATEGORIA"
                                    FontWeight="Bold" Opacity="0.7" FontSize="12" Margin="4,2,4,8" />
                         <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Opacity="0.6" FontSize="11"
                                    Margin="4,0,4,8"
-                                   Text="Prezzo e ore per ogni divisione superata, per tier. Il bot somma sulle divisioni del range e arrotonda il tempo al valore di consegna più vicino. Spunta 'Escludi' per rifiutare un rank." />
-                        <DataGrid ItemsSource="{Binding TierRows}" AutoGenerateColumns="False"
+                                   Text="Categorie del gioco selezionato (dalle tue iscrizioni). Per ognuna imposta prezzo per unità, quantità min/max e tempo di consegna. Spunta «Attiva» per offrire su quella categoria. Il rank specifico si concorda in chat." />
+                        <DataGrid ItemsSource="{Binding CategoryRows}" AutoGenerateColumns="False"
                                   CanUserAddRows="False" CanUserDeleteRows="False"
-                                  HeadersVisibility="Column" GridLinesVisibility="Horizontal">
+                                  HeadersVisibility="Column" GridLinesVisibility="Horizontal"
+                                  ScrollViewer.VerticalScrollBarVisibility="Disabled">
                             <DataGrid.Columns>
-                                <DataGridTemplateColumn Header="Rank" Width="140" IsReadOnly="True">
+                                <DataGridTemplateColumn Header="Attiva" Width="60">
                                     <DataGridTemplateColumn.CellTemplate>
                                         <DataTemplate>
-                                            <Border CornerRadius="4" Padding="10,4" Margin="2"
-                                                    HorizontalAlignment="Left"
-                                                    Background="{Binding Tier, Converter={StaticResource RankToBrush}}">
-                                                <TextBlock Text="{Binding Tier}" FontWeight="SemiBold" Foreground="#111" />
-                                            </Border>
+                                            <CheckBox IsChecked="{Binding Enabled, UpdateSourceTrigger=PropertyChanged}"
+                                                      HorizontalAlignment="Center" />
                                         </DataTemplate>
                                     </DataGridTemplateColumn.CellTemplate>
                                 </DataGridTemplateColumn>
-                                <DataGridTextColumn Header="Prezzo / divisione" Width="*"
-                                                    Binding="{Binding PricePerDivision, StringFormat=N2}" />
-                                <DataGridTextColumn Header="Ore / divisione" Width="*"
-                                                    Binding="{Binding HoursPerDivision}" />
-                                <DataGridCheckBoxColumn Header="Escludi" Width="80"
-                                                        Binding="{Binding Excluded, UpdateSourceTrigger=PropertyChanged}" />
+                                <DataGridTextColumn Header="Categoria" Width="*" IsReadOnly="True"
+                                                    Binding="{Binding CategoryName}" />
+                                <DataGridTextColumn Header="Prezzo / unità" Width="110"
+                                                    Binding="{Binding PricePerUnit, StringFormat=N2, UpdateSourceTrigger=PropertyChanged}" />
+                                <DataGridTextColumn Header="Qta min" Width="70"
+                                                    Binding="{Binding MinQuantity, UpdateSourceTrigger=PropertyChanged}" />
+                                <DataGridTextColumn Header="Qta max" Width="70"
+                                                    Binding="{Binding Quantity, UpdateSourceTrigger=PropertyChanged}" />
+                                <DataGridTemplateColumn Header="Consegna" Width="120">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <ComboBox ItemsSource="{Binding DataContext.DeliveryTimeOptions, RelativeSource={RelativeSource AncestorType=DataGrid}}"
+                                                      SelectedItem="{Binding DeliveryTime, UpdateSourceTrigger=PropertyChanged}"
+                                                      BorderThickness="0" />
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
                             </DataGrid.Columns>
                         </DataGrid>
                     </DockPanel>
                 </materialDesign:Card>
-            </Grid>
+                </StackPanel>
+            </ScrollViewer>
 
             <!-- Right: activity log -->
             <materialDesign:Card Grid.Column="1" Padding="12" materialDesign:ElevationAssist.Elevation="Dp2">

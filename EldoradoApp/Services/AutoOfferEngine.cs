@@ -97,47 +97,39 @@ public sealed class AutoOfferEngine(
             }
 
             var title = request.BoostingCategoryTitle;
-            var parsed = BoostingCategoryParser.Parse(title);
+            var pricing = settings.ForCategory(request.GameId, request.BoostingCategoryId);
 
-            if (!settings.IsRegionAccepted(parsed.Region))
+            // Not configured / disabled for this category → silently skip (keeps the log clean).
+            if (pricing is null || !pricing.Enabled)
             {
-                Emit(AutoOfferOutcome.SkippedRegion, request.Id, title, request.BuyerUsername, null,
-                    $"Regione non accettata ({parsed.Region ?? "?"})");
                 continue;
             }
 
-            var currentTier = parsed.CurrentRank is null ? null : ValorantRanks.Tier(parsed.CurrentRank);
-            if (settings.IsRankExcluded(parsed.DesiredTier) || settings.IsRankExcluded(currentTier))
+            if (pricing.PricePerUnit <= 0)
             {
-                Emit(AutoOfferOutcome.SkippedRank, request.Id, title, request.BuyerUsername, null,
-                    $"Rank escluso ({parsed.CurrentRank} → {parsed.DesiredRank})");
-                continue;
-            }
-
-            var quote = BoostOfferCalculator.Quote(settings, parsed.CurrentRank, parsed.DesiredRank);
-            if (quote is null)
-            {
-                // Couldn't read a rank range — log the raw title to calibrate the parser.
                 Emit(AutoOfferOutcome.SkippedNoRange, request.Id, title, request.BuyerUsername, null,
-                    $"Range non interpretabile dal titolo: \"{title}\"");
+                    $"Prezzo non impostato per la categoria \"{title}\"");
                 continue;
             }
 
             var draft = new BoostingOfferDraft(
                 BoostingRequestId: request.Id,
-                DeliveryTime: quote.DeliveryTime,
-                PricePerUnit: quote.Price,
+                DeliveryTime: pricing.DeliveryTime,
+                PricePerUnit: pricing.PricePerUnit,
                 Currency: settings.Currency,
-                Quantity: 1,
-                MinQuantity: 1);
+                Quantity: Math.Max(1, pricing.Quantity),
+                MinQuantity: Math.Max(1, pricing.MinQuantity));
 
-            var summary = $"{parsed.CurrentRank} → {parsed.DesiredRank} ({quote.Divisions} div) · " +
-                          $"{quote.Price:N2} {settings.Currency} · ~{quote.Hours:0.#}h → {quote.DeliveryTime}";
+            var note = string.IsNullOrWhiteSpace(settings.OfferMessage)
+                ? ""
+                : $" · 📝 \"{settings.OfferMessage.Trim()}\"";
+            var summary = $"{title}: {pricing.PricePerUnit:N2} {settings.Currency}/unità " +
+                          $"(qta {draft.MinQuantity}-{draft.Quantity}) → {pricing.DeliveryTime}{note}";
 
             if (settings.DryRun)
             {
                 _offered.Add(request.Id);
-                Emit(AutoOfferOutcome.DryRunWouldSubmit, request.Id, title, request.BuyerUsername, quote.Price,
+                Emit(AutoOfferOutcome.DryRunWouldSubmit, request.Id, title, request.BuyerUsername, pricing.PricePerUnit,
                     $"[DRY-RUN] {summary}");
                 continue;
             }
@@ -146,13 +138,13 @@ public sealed class AutoOfferEngine(
             {
                 await offers.SubmitOfferAsync(draft, cancellationToken).ConfigureAwait(false);
                 _offered.Add(request.Id);
-                Emit(AutoOfferOutcome.Submitted, request.Id, title, request.BuyerUsername, quote.Price,
+                Emit(AutoOfferOutcome.Submitted, request.Id, title, request.BuyerUsername, pricing.PricePerUnit,
                     $"Offerta inviata: {summary}");
             }
             catch (Exception ex)
             {
                 // Leave it un-offered so the next cycle retries.
-                Emit(AutoOfferOutcome.Error, request.Id, title, request.BuyerUsername, quote.Price,
+                Emit(AutoOfferOutcome.Error, request.Id, title, request.BuyerUsername, pricing.PricePerUnit,
                     $"Invio fallito: {ex.Message}");
             }
         }

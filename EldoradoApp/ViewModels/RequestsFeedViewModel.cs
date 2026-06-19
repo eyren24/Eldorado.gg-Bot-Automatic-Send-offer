@@ -76,13 +76,24 @@ public sealed partial class RequestsFeedViewModel : ObservableObject
                 .GetReceivedRequestsAsync(BoostingRequestFilter.ActiveRequests, gameId, 50);
 
             Requests.Clear();
+            int hiddenRegion = 0;
             foreach (var r in items)
             {
+                var parsed = BoostingCategoryParser.Parse(r.BoostingCategoryTitle);
+
+                // Hide excluded regions entirely (the game is already filtered server-side by gameId).
+                if (!_settings.IsRegionAccepted(parsed.Region))
+                {
+                    hiddenRegion++;
+                    continue;
+                }
+
                 Requests.Add(new RequestRow(r, _settings));
             }
 
             Count = Requests.Count;
-            StatusMessage = $"{Count} richieste · aggiornato {DateTimeOffset.Now:HH:mm:ss}";
+            var hiddenNote = hiddenRegion > 0 ? $" · {hiddenRegion} nascoste (regione)" : "";
+            StatusMessage = $"{Count} richieste{hiddenNote} · aggiornato {DateTimeOffset.Now:HH:mm:ss}";
         }
         catch (Exception ex)
         {

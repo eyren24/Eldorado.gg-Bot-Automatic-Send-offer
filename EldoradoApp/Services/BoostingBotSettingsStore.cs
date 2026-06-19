@@ -23,7 +23,6 @@ public static class BoostingBotSettingsStore
                 var settings = JsonSerializer.Deserialize<BoostingBotSettings>(File.ReadAllText(FilePath));
                 if (settings is not null)
                 {
-                    settings.EnsureTierEntries();
                     return settings;
                 }
             }

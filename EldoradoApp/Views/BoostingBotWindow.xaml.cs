@@ -18,4 +18,20 @@ public partial class BoostingBotWindow : Window
             vm.SignInCommand.Execute(PasswordBox.Password);
         }
     }
+
+    private async void SignInGoogle_Click(object sender, RoutedEventArgs e)
+    {
+        if (DataContext is not BoostingBotViewModel vm)
+        {
+            return;
+        }
+
+        // The view owns the browser window; the VM/backend own the OAuth logic.
+        await vm.SignInWithGoogleAsync(authorizeUrl =>
+        {
+            var login = new GoogleLoginWindow(authorizeUrl) { Owner = this };
+            login.ShowDialog();
+            return (login.AuthorizationCode, login.Error);
+        });
+    }
 }
