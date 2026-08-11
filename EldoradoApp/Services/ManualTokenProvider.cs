@@ -15,6 +15,9 @@ public sealed class ManualTokenProvider : IEldoradoTokenProvider
     /// <summary>True while a token is set (it may still be expired — see <see cref="IsExpired"/>).</summary>
     public bool IsSignedIn => _idToken is not null;
 
+    /// <summary>The raw token in use, so a refresher can tell whether it changed.</summary>
+    public string? Token => _idToken;
+
     public DateTimeOffset? ExpiresAt => _idToken is null ? null : _expiresAt;
 
     public bool IsExpired => _idToken is not null && DateTimeOffset.UtcNow >= _expiresAt;

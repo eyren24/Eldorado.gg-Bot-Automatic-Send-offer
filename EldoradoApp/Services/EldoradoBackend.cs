@@ -55,11 +55,19 @@ public sealed class EldoradoBackend : IDisposable
     /// <summary>How the current session was established (None when signed out).</summary>
     public SellerAuthMethod AuthMethod => _session.Method;
 
-    /// <summary>Builds an auto-offer engine bound to the live clients and a settings source.</summary>
-    public AutoOfferEngine CreateAutoOfferEngine(Func<BoostingBotSettings> settingsProvider)
-        => new(BoostingRequests, BoostingOffers, settingsProvider);
+    /// <summary>
+    /// Builds an auto-offer engine bound to the live clients and a settings source.
+    /// Passing <paramref name="messages"/> makes it fire the seller's follow-up message
+    /// (with banner) right after each offer is submitted.
+    /// </summary>
+    public AutoOfferEngine CreateAutoOfferEngine(
+        Func<BoostingBotSettings> settingsProvider, OfferMessageDispatcher? messages = null)
+        => new(BoostingRequests, BoostingOffers, settingsProvider, messages);
 
     public bool IsSignedIn => _session.IsSignedIn;
+
+    /// <summary>The IdToken currently in use, when the session came from a pasted/borrowed token.</summary>
+    public string? CurrentIdToken => ManualToken.Token;
 
     /// <summary>
     /// Restores a session from persisted secrets — a stored Google refresh token first,
@@ -118,31 +126,6 @@ public sealed class EldoradoBackend : IDisposable
         await Auth.SignInAsync(email, password, cancellationToken).ConfigureAwait(false);
         CredentialStore.Save(new EldoradoCredentials(email, password));
         _session.Use(Auth, SellerAuthMethod.EmailPassword);
-    }
-
-    /// <summary>
-    /// Signs in with Google via the Hosted UI. <paramref name="showLogin"/> receives the
-    /// authorize URL, shows the interactive browser window, and returns the captured
-    /// authorization code and/or an error reported on the callback.
-    /// </summary>
-    public async Task SignInWithGoogleAsync(
-        Func<string, (string? code, string? error)> showLogin, CancellationToken cancellationToken = default)
-    {
-        var (authorizeUrl, codeVerifier) = OAuth.BeginSignIn();
-        var (code, error) = showLogin(authorizeUrl);
-
-        if (!string.IsNullOrEmpty(error))
-        {
-            throw new InvalidOperationException($"La Hosted UI ha restituito un errore: {error}");
-        }
-
-        if (string.IsNullOrEmpty(code))
-        {
-            throw new OperationCanceledException("finestra chiusa prima di completare l'accesso.");
-        }
-
-        await OAuth.CompleteSignInAsync(code, codeVerifier, cancellationToken).ConfigureAwait(false);
-        _session.Use(OAuth, SellerAuthMethod.Google);
     }
 
     /// <summary>

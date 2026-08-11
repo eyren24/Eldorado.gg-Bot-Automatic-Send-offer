@@ -23,7 +23,7 @@ public static class BoostingBotSettingsStore
                 var settings = JsonSerializer.Deserialize<BoostingBotSettings>(File.ReadAllText(FilePath));
                 if (settings is not null)
                 {
-                    return settings;
+                    return Migrate(settings).Normalized();
                 }
             }
         }
@@ -32,7 +32,32 @@ public static class BoostingBotSettingsStore
             // Corrupt/unreadable → safe defaults (disarmed, dry-run).
         }
 
-        return BoostingBotSettings.CreateDefault();
+        return BoostingBotSettings.CreateDefault().Normalized();
+    }
+
+    /// <summary>
+    /// Brings a file written by the per-unit pricing build forward: its per-category
+    /// prices become flat-price fallbacks. (A legacy file has no <c>pricing</c> section
+    /// at all, so the property initialiser already leaves the default ladder in place.)
+    /// </summary>
+    private static BoostingBotSettings Migrate(BoostingBotSettings settings)
+    {
+        foreach (var category in settings.CategoryPrices ?? [])
+        {
+            if (category.FlatPrice <= 0 && category.PricePerUnit > 0)
+            {
+                category.FlatPrice = category.PricePerUnit;
+            }
+        }
+
+        // The chat used to live on /chat; the seller inbox is the real destination.
+        if (settings.Message is { } message &&
+            message.ChatUrl.Contains("eldorado.gg/chat", StringComparison.OrdinalIgnoreCase))
+        {
+            message.ChatUrl = OfferMessageSettings.DefaultChatUrl;
+        }
+
+        return settings;
     }
 
     public static void Save(BoostingBotSettings settings)

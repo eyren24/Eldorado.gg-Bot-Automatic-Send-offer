@@ -43,8 +43,10 @@ public static class EldoradoApiOptions
     public const string OAuthScopes = "openid";
 
     /// <summary>
-    /// Cognito federated IdP to go straight to, skipping the managed login page (which is
-    /// currently "unavailable" for this client). The user signs into Eldorado via Google.
+    /// Cognito federated IdP to go straight to, skipping the managed login page. Confirmed
+    /// working on 2026-08-11: authorize redirects to <c>accounts.google.com</c>, which comes
+    /// back to <c>{HostedUiDomain}/oauth2/idpresponse</c>. Set to null/empty to land on
+    /// Cognito's own login page instead.
     /// </summary>
     public const string OAuthIdentityProvider = "Google";
 

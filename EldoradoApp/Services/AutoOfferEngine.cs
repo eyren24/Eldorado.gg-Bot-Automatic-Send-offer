@@ -7,9 +7,10 @@ public enum AutoOfferOutcome
     Submitted,
     DryRunWouldSubmit,
     SkippedRegion,
-    SkippedRank,
+    SkippedCategory,
     SkippedNoRange,
     Accepted,
+    Message,
     Info,
     Error
 }
@@ -25,24 +26,31 @@ public sealed record AutoOfferEvent(
     DateTimeOffset Timestamp);
 
 /// <summary>
-/// The auto-bidding engine: polls received boosting requests, parses each one's
-/// rank range + region from its category title, computes a price and delivery
-/// time per division, and answers the allowed ones. Reports when a buyer accepts.
+/// The auto-bidding engine: polls received boosting requests, prices each one on the
+/// rank ladder (base price + one surcharge per division climbed + the buyer's extras),
+/// answers the allowed ones and — the moment an offer lands — fires the seller's
+/// message with its banner. Reports when a buyer accepts.
 /// </summary>
 /// <remarks>
-/// Safety: nothing is submitted unless the settings are <c>Enabled</c> and not in
-/// <c>DryRun</c>. Unparseable ranges are skipped and logged (with the raw title)
-/// so the category parser can be calibrated against live data.
+/// Safety: nothing is submitted while <c>DryRun</c> is on. Requests whose rank range
+/// can't be parsed are skipped and logged with the raw title, so the parser can be
+/// calibrated against live data instead of guessing a price.
 /// </remarks>
 public sealed class AutoOfferEngine(
     IBoostingRequestClient requests,
     IBoostingOfferClient offers,
-    Func<BoostingBotSettings> settingsProvider)
+    Func<BoostingBotSettings> settingsProvider,
+    OfferMessageDispatcher? messages = null)
 {
     private readonly HashSet<string> _offered = [];
     private readonly HashSet<string> _won = [];
 
     public event Action<AutoOfferEvent>? Activity;
+
+    /// <summary>Requests answered since the app started (used by the dashboard counters).</summary>
+    public int OfferedCount => _offered.Count;
+
+    public int WonCount => _won.Count;
 
     public async Task RunLoopAsync(CancellationToken cancellationToken)
     {
@@ -64,8 +72,7 @@ public sealed class AutoOfferEngine(
 
     public async Task RunOnceAsync(CancellationToken cancellationToken = default)
     {
-        // The loop running (Start/Stop) is the on/off switch; no separate gate.
-        var settings = settingsProvider();
+        var settings = settingsProvider().Normalized();
         await ProcessActiveRequestsAsync(settings, cancellationToken).ConfigureAwait(false);
         await DetectAcceptedAsync(settings, cancellationToken).ConfigureAwait(false);
     }
@@ -96,57 +103,140 @@ public sealed class AutoOfferEngine(
                 continue;
             }
 
-            var title = request.BoostingCategoryTitle;
-            var pricing = settings.ForCategory(request.GameId, request.BoostingCategoryId);
+            await ProcessOneAsync(request, settings, cancellationToken).ConfigureAwait(false);
+        }
+    }
 
-            // Not configured / disabled for this category → silently skip (keeps the log clean).
-            if (pricing is null || !pricing.Enabled)
-            {
-                continue;
-            }
+    private async Task ProcessOneAsync(
+        BoostingRequest request, BoostingBotSettings settings, CancellationToken cancellationToken)
+    {
+        var title = request.BoostingCategoryTitle;
+        var category = settings.ForCategory(request.GameId, request.BoostingCategoryId);
 
-            if (pricing.PricePerUnit <= 0)
+        if (category is null && !settings.AnswerUnknownCategories)
+        {
+            return;
+        }
+
+        if (category is { Enabled: false })
+        {
+            return;
+        }
+
+        // Valorant only: never bid on another game, whatever the feed returns.
+        if (settings.ValorantOnly && settings.GameId is { Length: > 0 } valorantId &&
+            !string.Equals(request.GameId, valorantId, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        var parsed = BoostingCategoryParser.Parse(request, settings);
+        if (!settings.IsRegionAccepted(parsed.Region))
+        {
+            Emit(AutoOfferOutcome.SkippedRegion, request.Id, title, request.BuyerUsername, null,
+                $"Regione {parsed.Region ?? "?"} esclusa");
+            return;
+        }
+
+        var quote = BoostingPriceCalculator.Quote(request, settings);
+
+        if (!quote.IsPriceable)
+        {
+            if (settings.SkipUnparsableRanges)
             {
                 Emit(AutoOfferOutcome.SkippedNoRange, request.Id, title, request.BuyerUsername, null,
-                    $"Prezzo non impostato per la categoria \"{title}\"");
-                continue;
+                    $"Non quotabile ({quote.Problem}) · titolo grezzo: \"{title}\"");
+                return;
             }
 
-            var draft = new BoostingOfferDraft(
-                BoostingRequestId: request.Id,
-                DeliveryTime: pricing.DeliveryTime,
-                PricePerUnit: pricing.PricePerUnit,
-                Currency: settings.Currency,
-                Quantity: Math.Max(1, pricing.Quantity),
-                MinQuantity: Math.Max(1, pricing.MinQuantity));
+            // The seller chose to bid anyway: base price + extras, no division surcharges.
+            quote = BoostingPriceCalculator.QuoteWithoutRange(parsed.MatchedExtraIds, settings, parsed.Region);
 
-            var note = string.IsNullOrWhiteSpace(settings.OfferMessage)
-                ? ""
-                : $" · 📝 \"{settings.OfferMessage.Trim()}\"";
-            var summary = $"{title}: {pricing.PricePerUnit:N2} {settings.Currency}/unità " +
-                          $"(qta {draft.MinQuantity}-{draft.Quantity}) → {pricing.DeliveryTime}{note}";
-
-            if (settings.DryRun)
+            if (!quote.IsPriceable)
             {
-                _offered.Add(request.Id);
-                Emit(AutoOfferOutcome.DryRunWouldSubmit, request.Id, title, request.BuyerUsername, pricing.PricePerUnit,
-                    $"[DRY-RUN] {summary}");
-                continue;
+                Emit(AutoOfferOutcome.SkippedNoRange, request.Id, title, request.BuyerUsername, null,
+                    "Prezzo base a 0: imposta un prezzo base per offrire senza range");
+                return;
             }
+        }
 
-            try
+        var deliveryTime = settings.DeliveryTimeFor(request.GameId, request.BoostingCategoryId);
+        var (pricePerUnit, quantity, minQuantity) =
+            BoostingPriceCalculator.ToOfferPricing(quote, settings, category);
+
+        var draft = new BoostingOfferDraft(
+            BoostingRequestId: request.Id,
+            DeliveryTime: deliveryTime,
+            PricePerUnit: pricePerUnit,
+            Currency: settings.Currency,
+            Quantity: quantity,
+            MinQuantity: minQuantity);
+
+        var summary = $"{quote.Summary} → {deliveryTime}" +
+                      (quantity > 1 ? $" (qta {minQuantity}-{quantity} × {pricePerUnit:N2})" : "");
+
+        if (settings.DryRun)
+        {
+            _offered.Add(request.Id);
+            Emit(AutoOfferOutcome.DryRunWouldSubmit, request.Id, title, request.BuyerUsername, quote.Total,
+                $"[DRY-RUN] {summary}");
+            return;
+        }
+
+        try
+        {
+            await offers.SubmitOfferAsync(draft, cancellationToken).ConfigureAwait(false);
+            _offered.Add(request.Id);
+            Emit(AutoOfferOutcome.Submitted, request.Id, title, request.BuyerUsername, quote.Total,
+                $"Offerta inviata: {summary}");
+        }
+        catch (Exception ex)
+        {
+            // Leave it un-offered so the next cycle retries.
+            Emit(AutoOfferOutcome.Error, request.Id, title, request.BuyerUsername, quote.Total,
+                $"Invio fallito: {ex.Message}");
+            return;
+        }
+
+        await SendFollowUpAsync(request, quote, deliveryTime, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>Fires the seller's message + banner right after the offer landed.</summary>
+    private async Task SendFollowUpAsync(
+        BoostingRequest request,
+        PriceQuote quote,
+        BoostingDeliveryTime deliveryTime,
+        CancellationToken cancellationToken)
+    {
+        if (messages is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var result = await messages
+                .DispatchAsync(request, quote, deliveryTime, cancellationToken)
+                .ConfigureAwait(false);
+
+            if (result.Outcome != MessageOutcome.Disabled)
             {
-                await offers.SubmitOfferAsync(draft, cancellationToken).ConfigureAwait(false);
-                _offered.Add(request.Id);
-                Emit(AutoOfferOutcome.Submitted, request.Id, title, request.BuyerUsername, pricing.PricePerUnit,
-                    $"Offerta inviata: {summary}");
+                var icon = result.Outcome switch
+                {
+                    MessageOutcome.Sent => "💬",
+                    MessageOutcome.Staged => "📋",
+                    _ => "⚠️"
+                };
+
+                Emit(result.Outcome == MessageOutcome.Failed ? AutoOfferOutcome.Error : AutoOfferOutcome.Message,
+                    request.Id, request.BoostingCategoryTitle, request.BuyerUsername, null,
+                    $"{icon} Messaggio: {result.Detail}");
             }
-            catch (Exception ex)
-            {
-                // Leave it un-offered so the next cycle retries.
-                Emit(AutoOfferOutcome.Error, request.Id, title, request.BuyerUsername, pricing.PricePerUnit,
-                    $"Invio fallito: {ex.Message}");
-            }
+        }
+        catch (Exception ex)
+        {
+            Emit(AutoOfferOutcome.Error, request.Id, request.BoostingCategoryTitle, request.BuyerUsername, null,
+                $"Messaggio automatico fallito: {ex.Message}");
         }
     }
 

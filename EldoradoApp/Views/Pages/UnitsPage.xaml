@@ -1,0 +1,186 @@
+<UserControl x:Class="EldoradoApp.Views.Pages.UnitsPage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
+             xmlns:vm="clr-namespace:EldoradoApp.ViewModels"
+             mc:Ignorable="d"
+             d:DataContext="{d:DesignInstance vm:UnitsViewModel}"
+             d:DesignHeight="740" d:DesignWidth="1200">
+
+    <UserControl.Resources>
+        <!-- Shared layout for the two per-game price tables -->
+        <DataTemplate x:Key="TierRowTemplate" DataType="{x:Type vm:TierPriceRow}">
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="4,0">
+                <Border Width="10" Height="10" CornerRadius="5" Background="{Binding TierBrush}" />
+                <TextBlock Text="{Binding Tier}" Margin="10,0,0,0" VerticalAlignment="Center"
+                           FontWeight="SemiBold" />
+            </StackPanel>
+        </DataTemplate>
+    </UserControl.Resources>
+
+    <Grid Margin="22,18">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <Border Grid.Row="0" Style="{StaticResource Card}">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Grid.Column="0" Margin="0,0,20,0">
+                    <TextBlock Text="CATEGORIE A PARTITE" Style="{StaticResource CardTitle}" />
+                    <TextBlock Style="{StaticResource Hint}"
+                               Text="Placement e Net Wins non hanno un range di rank, quindi non usano il listino per divisione: si pagano a partita. Il prezzo è prezzoBase + (prezzo del rank × numero di partite). Per i placement il rank è quello della scorsa stagione, per le net wins quello attuale. Il numero di partite viene letto dalla richiesta (es. «10 wins», «x5»); se manca si usa il valore predefinito." />
+                </StackPanel>
+
+                <Button Grid.Column="1" VerticalAlignment="Center" Height="38" Padding="18,0"
+                        Style="{StaticResource MaterialDesignRaisedButton}"
+                        Background="{StaticResource AppAccent}" BorderBrush="{StaticResource AppAccent}"
+                        Foreground="White" Command="{Binding SaveCommand}">
+                    <StackPanel Orientation="Horizontal">
+                        <materialDesign:PackIcon Kind="ContentSave" VerticalAlignment="Center" />
+                        <TextBlock Text="Salva" Margin="8,0,0,0" VerticalAlignment="Center" />
+                    </StackPanel>
+                </Button>
+            </Grid>
+        </Border>
+
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <!-- ===== Placements ===== -->
+            <Border Grid.Column="0" Margin="0,0,8,0" Background="{StaticResource AppSurface}" CornerRadius="12"
+                    BorderBrush="{StaticResource AppBorder}" BorderThickness="1">
+                <DockPanel Margin="18,16">
+                    <Grid DockPanel.Dock="Top" Margin="0,0,0,12">
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <ToggleButton Style="{StaticResource MaterialDesignSwitchToggleButton}"
+                                          IsChecked="{Binding PlacementsEnabled}" VerticalAlignment="Center" />
+                            <TextBlock Text="PLACEMENT MATCHES" Margin="10,0,0,0" VerticalAlignment="Center"
+                                       FontWeight="Bold" FontSize="12" Foreground="{StaticResource AppText}" />
+                        </StackPanel>
+                        <Button HorizontalAlignment="Right" Style="{StaticResource MaterialDesignFlatButton}"
+                                Height="26" Padding="10,0" FontSize="11"
+                                Foreground="{StaticResource AppTextDim}"
+                                Command="{Binding ResetPlacementsCommand}" Content="Valori consigliati" />
+                    </Grid>
+
+                    <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,10">
+                        <TextBox Width="130" Style="{StaticResource FieldBox}"
+                                 materialDesign:HintAssist.Hint="Prezzo base"
+                                 Text="{Binding PlacementsBase, StringFormat=N2, UpdateSourceTrigger=LostFocus}" />
+                        <TextBox Width="130" Style="{StaticResource FieldBox}"
+                                 materialDesign:HintAssist.Hint="Partite default"
+                                 Text="{Binding PlacementsDefaultQuantity, UpdateSourceTrigger=LostFocus}" />
+                        <TextBox Width="130" Style="{StaticResource FieldBox}"
+                                 materialDesign:HintAssist.Hint="Max partite"
+                                 Text="{Binding PlacementsMaxQuantity, UpdateSourceTrigger=LostFocus}" />
+                    </WrapPanel>
+
+                    <!-- Simulator -->
+                    <Border DockPanel.Dock="Bottom" Background="{StaticResource AppSurfaceAlt}" CornerRadius="10"
+                            Padding="14,12" Margin="0,12,0,0">
+                        <StackPanel>
+                            <WrapPanel>
+                                <ComboBox Width="140" Style="{StaticResource FieldCombo}"
+                                          materialDesign:HintAssist.Hint="Rank scorsa season"
+                                          ItemsSource="{Binding Tiers}" SelectedItem="{Binding PlacementsSimTier}" />
+                                <TextBox Width="110" Style="{StaticResource FieldBox}"
+                                         materialDesign:HintAssist.Hint="Partite"
+                                         Text="{Binding PlacementsSimQuantity, UpdateSourceTrigger=LostFocus}" />
+                            </WrapPanel>
+                            <TextBlock Text="{Binding PlacementsSimTotal}" FontSize="26" FontWeight="Bold"
+                                       Foreground="{StaticResource AppMint}" />
+                            <TextBlock Text="{Binding PlacementsSimDetail}" Style="{StaticResource Hint}"
+                                       Margin="0,4,0,0" />
+                        </StackPanel>
+                    </Border>
+
+                    <DataGrid ItemsSource="{Binding PlacementTiers}" AutoGenerateColumns="False"
+                              CanUserAddRows="False" CanUserDeleteRows="False" CanUserSortColumns="False"
+                              HeadersVisibility="Column" GridLinesVisibility="Horizontal"
+                              Background="Transparent" RowBackground="Transparent" BorderThickness="0"
+                              HorizontalGridLinesBrush="{StaticResource AppBorder}">
+                        <DataGrid.Columns>
+                            <DataGridTemplateColumn Header="Rank" Width="*" IsReadOnly="True"
+                                                    CellTemplate="{StaticResource TierRowTemplate}" />
+                            <DataGridTextColumn Header="€ per partita" Width="130"
+                                                Binding="{Binding PricePerUnit, StringFormat=N2, UpdateSourceTrigger=LostFocus}" />
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </DockPanel>
+            </Border>
+
+            <!-- ===== Net wins ===== -->
+            <Border Grid.Column="1" Margin="8,0,0,0" Background="{StaticResource AppSurface}" CornerRadius="12"
+                    BorderBrush="{StaticResource AppBorder}" BorderThickness="1">
+                <DockPanel Margin="18,16">
+                    <Grid DockPanel.Dock="Top" Margin="0,0,0,12">
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <ToggleButton Style="{StaticResource MaterialDesignSwitchToggleButton}"
+                                          IsChecked="{Binding NetWinsEnabled}" VerticalAlignment="Center" />
+                            <TextBlock Text="NET WINS" Margin="10,0,0,0" VerticalAlignment="Center"
+                                       FontWeight="Bold" FontSize="12" Foreground="{StaticResource AppText}" />
+                        </StackPanel>
+                        <Button HorizontalAlignment="Right" Style="{StaticResource MaterialDesignFlatButton}"
+                                Height="26" Padding="10,0" FontSize="11"
+                                Foreground="{StaticResource AppTextDim}"
+                                Command="{Binding ResetNetWinsCommand}" Content="Valori consigliati" />
+                    </Grid>
+
+                    <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,10">
+                        <TextBox Width="130" Style="{StaticResource FieldBox}"
+                                 materialDesign:HintAssist.Hint="Prezzo base"
+                                 Text="{Binding NetWinsBase, StringFormat=N2, UpdateSourceTrigger=LostFocus}" />
+                        <TextBox Width="130" Style="{StaticResource FieldBox}"
+                                 materialDesign:HintAssist.Hint="Vittorie default"
+                                 Text="{Binding NetWinsDefaultQuantity, UpdateSourceTrigger=LostFocus}" />
+                        <TextBox Width="130" Style="{StaticResource FieldBox}"
+                                 materialDesign:HintAssist.Hint="Max vittorie"
+                                 Text="{Binding NetWinsMaxQuantity, UpdateSourceTrigger=LostFocus}" />
+                    </WrapPanel>
+
+                    <Border DockPanel.Dock="Bottom" Background="{StaticResource AppSurfaceAlt}" CornerRadius="10"
+                            Padding="14,12" Margin="0,12,0,0">
+                        <StackPanel>
+                            <WrapPanel>
+                                <ComboBox Width="140" Style="{StaticResource FieldCombo}"
+                                          materialDesign:HintAssist.Hint="Rank attuale"
+                                          ItemsSource="{Binding Tiers}" SelectedItem="{Binding NetWinsSimTier}" />
+                                <TextBox Width="110" Style="{StaticResource FieldBox}"
+                                         materialDesign:HintAssist.Hint="Vittorie"
+                                         Text="{Binding NetWinsSimQuantity, UpdateSourceTrigger=LostFocus}" />
+                            </WrapPanel>
+                            <TextBlock Text="{Binding NetWinsSimTotal}" FontSize="26" FontWeight="Bold"
+                                       Foreground="{StaticResource AppMint}" />
+                            <TextBlock Text="{Binding NetWinsSimDetail}" Style="{StaticResource Hint}"
+                                       Margin="0,4,0,0" />
+                        </StackPanel>
+                    </Border>
+
+                    <DataGrid ItemsSource="{Binding NetWinTiers}" AutoGenerateColumns="False"
+                              CanUserAddRows="False" CanUserDeleteRows="False" CanUserSortColumns="False"
+                              HeadersVisibility="Column" GridLinesVisibility="Horizontal"
+                              Background="Transparent" RowBackground="Transparent" BorderThickness="0"
+                              HorizontalGridLinesBrush="{StaticResource AppBorder}">
+                        <DataGrid.Columns>
+                            <DataGridTemplateColumn Header="Rank" Width="*" IsReadOnly="True"
+                                                    CellTemplate="{StaticResource TierRowTemplate}" />
+                            <DataGridTextColumn Header="€ per vittoria" Width="130"
+                                                Binding="{Binding PricePerUnit, StringFormat=N2, UpdateSourceTrigger=LostFocus}" />
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </DockPanel>
+            </Border>
+        </Grid>
+    </Grid>
+</UserControl>

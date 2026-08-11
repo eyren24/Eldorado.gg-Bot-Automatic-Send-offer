@@ -8,15 +8,16 @@ using EldoradoApp.Services;
 namespace EldoradoApp.ViewModels;
 
 /// <summary>
-/// Main-screen live feed of incoming boosting requests routed to the seller, with
-/// each request's rank range/region parsed and the offer (price + time) computed.
-/// Requires sign-in (done from the bot window); the backend is shared via the App.
+/// The dashboard's live feed of incoming boosting requests, each priced with the very
+/// same calculator the bot uses — so what you see is what would be offered.
 /// </summary>
 public sealed partial class RequestsFeedViewModel : ObservableObject
 {
     private readonly EldoradoBackend _backend;
+    private readonly SettingsHost _host;
     private readonly DispatcherTimer _timer;
-    private BoostingBotSettings _settings;
+
+    private BoostingBotSettings Settings => _host.Settings;
 
     public ObservableCollection<RequestRow> Requests { get; } = [];
 
@@ -25,17 +26,23 @@ public sealed partial class RequestsFeedViewModel : ObservableObject
     [ObservableProperty] private bool _isLoading;
     [ObservableProperty] private string _statusMessage = "Pronto";
     [ObservableProperty] private int _count;
+    [ObservableProperty] private int _priceableCount;
+    [ObservableProperty] private string _lastUpdate = "—";
+    [ObservableProperty] private RequestRow? _selected;
 
     public bool NotSignedIn => !IsSignedIn;
 
-    public RequestsFeedViewModel(EldoradoBackend backend)
+    public RequestsFeedViewModel(EldoradoBackend backend, SettingsHost host)
     {
         _backend = backend;
-        _settings = BoostingBotSettingsStore.Load();
+        _host = host;
         _isSignedIn = backend.IsSignedIn;
 
         _timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(15) };
         _timer.Tick += async (_, _) => await RefreshAsync();
+
+        // Re-price the visible cards whenever the price list changes.
+        _host.Changed += RepriceInPlace;
     }
 
     public async Task InitializeAsync() => await RefreshAsync();
@@ -44,56 +51,57 @@ public sealed partial class RequestsFeedViewModel : ObservableObject
     {
         if (value)
         {
+            _timer.Interval = TimeSpan.FromSeconds(Math.Max(5, Settings.PollIntervalSeconds));
             _timer.Start();
             StatusMessage = "Live · aggiornamento richieste…";
         }
         else
         {
             _timer.Stop();
+            StatusMessage = "Aggiornamento automatico fermo";
         }
     }
 
-    [RelayCommand]
-    private async Task RefreshAsync()
+    /// <summary>Cheap refresh: recompute prices for the cards already on screen.</summary>
+    private void RepriceInPlace()
     {
-        // Re-read settings so price/filters reflect the latest bot config.
-        _settings = BoostingBotSettingsStore.Load();
+        if (_rawRequests.Count == 0)
+        {
+            return;
+        }
+
+        Rebuild(_rawRequests);
+    }
+
+    private List<BoostingRequest> _rawRequests = [];
+
+    [RelayCommand]
+    public async Task RefreshAsync()
+    {
         IsSignedIn = _backend.IsSignedIn;
 
         if (!IsSignedIn)
         {
             Requests.Clear();
+            _rawRequests = [];
             Count = 0;
-            StatusMessage = "Accedi dal Bot per vedere le richieste.";
+            PriceableCount = 0;
+            StatusMessage = "Accedi dalla scheda Account per vedere le richieste.";
             return;
         }
 
         try
         {
             IsLoading = true;
-            var gameId = string.IsNullOrWhiteSpace(_settings.GameId) ? null : _settings.GameId;
+            var gameId = string.IsNullOrWhiteSpace(Settings.GameId) ? null : Settings.GameId;
             var items = await _backend.BoostingRequests
                 .GetReceivedRequestsAsync(BoostingRequestFilter.ActiveRequests, gameId, 50);
 
-            Requests.Clear();
-            int hiddenRegion = 0;
-            foreach (var r in items)
-            {
-                var parsed = BoostingCategoryParser.Parse(r.BoostingCategoryTitle);
+            _rawRequests = items.ToList();
+            Rebuild(_rawRequests);
 
-                // Hide excluded regions entirely (the game is already filtered server-side by gameId).
-                if (!_settings.IsRegionAccepted(parsed.Region))
-                {
-                    hiddenRegion++;
-                    continue;
-                }
-
-                Requests.Add(new RequestRow(r, _settings));
-            }
-
-            Count = Requests.Count;
-            var hiddenNote = hiddenRegion > 0 ? $" · {hiddenRegion} nascoste (regione)" : "";
-            StatusMessage = $"{Count} richieste{hiddenNote} · aggiornato {DateTimeOffset.Now:HH:mm:ss}";
+            LastUpdate = DateTimeOffset.Now.ToString("HH:mm:ss");
+            StatusMessage = $"{Count} richieste · {PriceableCount} quotabili · aggiornato {LastUpdate}";
         }
         catch (Exception ex)
         {
@@ -103,5 +111,20 @@ public sealed partial class RequestsFeedViewModel : ObservableObject
         {
             IsLoading = false;
         }
+    }
+
+    private void Rebuild(IReadOnlyList<BoostingRequest> items)
+    {
+        var selectedTitle = Selected?.CategoryTitle;
+
+        Requests.Clear();
+        foreach (var request in items)
+        {
+            Requests.Add(new RequestRow(request, Settings));
+        }
+
+        Count = Requests.Count;
+        PriceableCount = Requests.Count(r => r.PriceText != "—");
+        Selected = Requests.FirstOrDefault(r => r.CategoryTitle == selectedTitle);
     }
 }

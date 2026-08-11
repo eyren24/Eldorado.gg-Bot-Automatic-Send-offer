@@ -4,156 +4,273 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
+        xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
         xmlns:vm="clr-namespace:EldoradoApp.ViewModels"
+        xmlns:pages="clr-namespace:EldoradoApp.Views.Pages"
         mc:Ignorable="d"
-        Style="{StaticResource MaterialDesignWindow}"
-        TextElement.Foreground="{DynamicResource MaterialDesignBody}"
-        Background="{DynamicResource MaterialDesignPaper}"
+        TextElement.Foreground="{StaticResource AppText}"
+        Background="{StaticResource AppBackground}"
         FontFamily="{materialDesign:MaterialDesignFont}"
-        d:DataContext="{d:DesignInstance vm:RequestsFeedViewModel}"
-        Title="Eldorado · Valorant Boosting" Height="800" Width="1200">
+        TextOptions.TextFormattingMode="Ideal"
+        d:DataContext="{d:DesignInstance vm:ShellViewModel}"
+        Title="Eldorado · Boosting Bot" Height="920" Width="1480" MinHeight="700" MinWidth="1180"
+        WindowStartupLocation="CenterScreen">
 
     <Grid>
-        <Grid.RowDefinitions>
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="*" />
-            <RowDefinition Height="Auto" />
-        </Grid.RowDefinitions>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="242" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
 
-        <!-- App bar -->
-        <materialDesign:ColorZone Grid.Row="0" Mode="PrimaryMid" Padding="20,14"
-                                  materialDesign:ElevationAssist.Elevation="Dp4">
-            <Grid>
-                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                    <materialDesign:PackIcon Kind="SwordCross" Width="30" Height="30" VerticalAlignment="Center" />
-                    <TextBlock Text="VALORANT · Richieste boosting" Margin="14,0,0,0"
-                               FontSize="21" FontWeight="Bold" VerticalAlignment="Center" />
-                </StackPanel>
+        <!-- ============ NAVIGATION RAIL ============ -->
+        <Border Grid.Column="0" Background="{StaticResource AppRail}"
+                BorderBrush="{StaticResource AppBorder}" BorderThickness="0,0,1,0">
+            <DockPanel>
 
-                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
-                    <materialDesign:PackIcon Kind="Circle" Width="12" Height="12" VerticalAlignment="Center"
-                                             Margin="0,0,6,0"
-                                             Visibility="{Binding IsLive, Converter={StaticResource BoolToVis}}"
-                                             Foreground="#69F0AE" />
-                    <ToggleButton Style="{StaticResource MaterialDesignSwitchToggleButton}"
-                                  IsChecked="{Binding IsLive}" VerticalAlignment="Center" />
-                    <TextBlock Text="LIVE" Margin="8,0,0,0" FontWeight="Bold" VerticalAlignment="Center" />
-                    <Button Margin="16,0,0,0" Command="{Binding RefreshCommand}" ToolTip="Aggiorna ora"
-                            Style="{StaticResource MaterialDesignIconButton}">
-                        <materialDesign:PackIcon Kind="Refresh" />
-                    </Button>
-                    <Button Margin="4,0,0,0" Click="OnBotClick" ToolTip="Bot auto-offerta · impostazioni">
-                        <StackPanel Orientation="Horizontal">
-                            <materialDesign:PackIcon Kind="Robot" VerticalAlignment="Center" />
-                            <TextBlock Text="Bot" Margin="6,0,0,0" />
+                <!-- Brand -->
+                <StackPanel DockPanel.Dock="Top" Margin="20,22,20,18">
+                    <StackPanel Orientation="Horizontal">
+                        <Border Background="{StaticResource AppAccent}" CornerRadius="8" Width="34" Height="34">
+                            <materialDesign:PackIcon Kind="Robot" Width="20" Height="20" Foreground="White"
+                                                     HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <StackPanel Margin="12,0,0,0" VerticalAlignment="Center">
+                            <TextBlock Text="ELDORADO BOT" FontWeight="Bold" FontSize="14"
+                                       Foreground="{StaticResource AppText}" />
+                            <TextBlock Text="Valorant boosting" FontSize="10.5"
+                                       Foreground="{StaticResource AppTextDim}" />
                         </StackPanel>
-                    </Button>
+                    </StackPanel>
                 </StackPanel>
-            </Grid>
-        </materialDesign:ColorZone>
 
-        <!-- Requests feed -->
-        <Grid Grid.Row="1">
-            <ScrollViewer Margin="16,12" VerticalScrollBarVisibility="Auto">
-                <ItemsControl ItemsSource="{Binding Requests}">
-                    <ItemsControl.ItemTemplate>
-                        <DataTemplate DataType="{x:Type vm:RequestRow}">
-                            <materialDesign:Card Margin="0,5" UniformCornerRadius="8"
-                                                 materialDesign:ElevationAssist.Elevation="Dp2">
-                                <Grid Height="92">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="6" />
-                                        <ColumnDefinition Width="Auto" />
-                                        <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="Auto" />
-                                        <ColumnDefinition Width="Auto" />
-                                    </Grid.ColumnDefinitions>
+                <!-- Bot control, pinned to the bottom -->
+                <Border DockPanel.Dock="Bottom" Margin="14,10,14,16" Padding="14"
+                        Background="{StaticResource AppSurface}" CornerRadius="12"
+                        BorderBrush="{StaticResource AppBorder}" BorderThickness="1">
+                    <StackPanel>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                            <Ellipse Width="9" Height="9" VerticalAlignment="Center">
+                                <Ellipse.Style>
+                                    <Style TargetType="Ellipse">
+                                        <Setter Property="Fill" Value="#4A5866" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsRunning}" Value="True">
+                                                <Setter Property="Fill" Value="{StaticResource AppMint}" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Ellipse.Style>
+                            </Ellipse>
+                            <TextBlock Margin="8,0,0,0" FontSize="11.5" FontWeight="SemiBold"
+                                       VerticalAlignment="Center" Foreground="{StaticResource AppTextDim}">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Text" Value="BOT FERMO" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsRunning}" Value="True">
+                                                <Setter Property="Text" Value="BOT IN ESECUZIONE" />
+                                                <Setter Property="Foreground" Value="{StaticResource AppMint}" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                        </StackPanel>
 
-                                    <Border Grid.Column="0" Background="{Binding StatusBrush}" />
-
-                                    <!-- Category chip -->
-                                    <Border Grid.Column="1" Background="#22FFFFFF" CornerRadius="6" Padding="14,7"
-                                            VerticalAlignment="Center" Margin="18,0">
-                                        <StackPanel Orientation="Horizontal">
-                                            <materialDesign:PackIcon Kind="SwordCross" Width="18" Height="18"
-                                                                     Opacity="0.8" VerticalAlignment="Center" />
-                                            <TextBlock Text="{Binding CategoryTitle}" Margin="8,0,0,0"
-                                                       FontWeight="SemiBold" VerticalAlignment="Center" />
-                                        </StackPanel>
-                                    </Border>
-
-                                    <!-- Buyer -->
-                                    <StackPanel Grid.Column="2" VerticalAlignment="Center" Margin="22,0">
-                                        <StackPanel Orientation="Horizontal">
-                                            <materialDesign:PackIcon Kind="AccountCircle" Width="18" Height="18"
-                                                                     Opacity="0.7" VerticalAlignment="Center" />
-                                            <TextBlock Text="{Binding Buyer}" Margin="6,0,0,0" FontWeight="Bold"
-                                                       VerticalAlignment="Center" />
-                                        </StackPanel>
-                                    </StackPanel>
-
-                                    <!-- Created -->
-                                    <StackPanel Grid.Column="3" Orientation="Horizontal"
-                                                VerticalAlignment="Center" Margin="16,0">
-                                        <materialDesign:PackIcon Kind="ClockOutline" Width="16" Height="16"
-                                                                 Opacity="0.6" VerticalAlignment="Center" />
-                                        <TextBlock Text="{Binding Created}" Margin="6,0,0,0" Opacity="0.7"
-                                                   VerticalAlignment="Center" />
-                                    </StackPanel>
-
-                                    <!-- Computed offer -->
-                                    <Border Grid.Column="4" Background="#14FFFFFF" Padding="22,0" Margin="16,0,0,0">
-                                        <StackPanel VerticalAlignment="Center" HorizontalAlignment="Right">
-                                            <TextBlock Text="{Binding PriceText}" FontSize="19" FontWeight="Bold"
-                                                       HorizontalAlignment="Right"
-                                                       Foreground="{DynamicResource SecondaryHueMidBrush}" />
-                                            <TextBlock Text="{Binding TimeText}" Opacity="0.7" FontSize="11"
-                                                       HorizontalAlignment="Right" Margin="0,2,0,0" />
-                                            <TextBlock Text="{Binding Status}" FontSize="11" FontWeight="SemiBold"
-                                                       HorizontalAlignment="Right" Margin="0,4,0,0"
-                                                       Foreground="{Binding StatusBrush}" />
-                                        </StackPanel>
-                                    </Border>
-                                </Grid>
-                            </materialDesign:Card>
-                        </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                </ItemsControl>
-            </ScrollViewer>
-
-            <!-- Not signed in overlay -->
-            <Border Background="{DynamicResource MaterialDesignPaper}"
-                    Visibility="{Binding NotSignedIn, Converter={StaticResource BoolToVis}}">
-                <materialDesign:Card HorizontalAlignment="Center" VerticalAlignment="Center"
-                                     Padding="44,36" UniformCornerRadius="12"
-                                     materialDesign:ElevationAssist.Elevation="Dp3">
-                    <StackPanel HorizontalAlignment="Center" MaxWidth="460">
-                        <materialDesign:PackIcon Kind="AccountLock" Width="64" Height="64"
-                                                 HorizontalAlignment="Center" Opacity="0.85"
-                                                 Foreground="{DynamicResource SecondaryHueMidBrush}" />
-                        <TextBlock Text="Accedi per vedere le richieste" FontSize="20" FontWeight="Bold"
-                                   HorizontalAlignment="Center" Margin="0,16,0,0" />
-                        <TextBlock TextWrapping="Wrap" TextAlignment="Center" Opacity="0.7" Margin="0,10,0,0"
-                                   Text="Apri il Bot e accedi con l'account venditore. Le richieste mostrate sono solo quelle instradate al tuo account (in base alle tue iscrizioni)." />
-                        <Button HorizontalAlignment="Center" Margin="0,22,0,0"
-                                Style="{StaticResource MaterialDesignRaisedButton}" Click="OnBotClick">
+                        <Button Command="{Binding StartBotCommand}" IsEnabled="{Binding NotRunning}"
+                                Style="{StaticResource MaterialDesignRaisedButton}"
+                                Background="{StaticResource AppAccent}" BorderBrush="{StaticResource AppAccent}"
+                                Foreground="White" Height="36">
                             <StackPanel Orientation="Horizontal">
-                                <materialDesign:PackIcon Kind="Robot" VerticalAlignment="Center" />
-                                <TextBlock Text="Apri Bot e accedi" Margin="8,0,0,0" />
+                                <materialDesign:PackIcon Kind="Play" VerticalAlignment="Center" />
+                                <TextBlock Text="Avvia bot" Margin="8,0,0,0" VerticalAlignment="Center" />
                             </StackPanel>
                         </Button>
+
+                        <Button Command="{Binding StopBotCommand}" IsEnabled="{Binding IsRunning}" Margin="0,8,0,0"
+                                Style="{StaticResource MaterialDesignOutlinedButton}" Height="34">
+                            <StackPanel Orientation="Horizontal">
+                                <materialDesign:PackIcon Kind="Stop" VerticalAlignment="Center" />
+                                <TextBlock Text="Ferma" Margin="8,0,0,0" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </Button>
+
+                        <Button Command="{Binding RunOnceCommand}" Margin="0,6,0,0"
+                                Style="{StaticResource MaterialDesignFlatButton}" Height="30"
+                                Foreground="{StaticResource AppTextDim}" FontSize="11"
+                                Content="Esegui un ciclo singolo" />
+
+                        <Border Background="#33FF4655" CornerRadius="8" Padding="10,7" Margin="0,10,0,0"
+                                Visibility="{Binding IsArmed, Converter={StaticResource BoolToVis}}">
+                            <TextBlock Text="⚠ LIVE: le offerte partono davvero" FontSize="10.5"
+                                       TextWrapping="Wrap" Foreground="#FFCDD2" />
+                        </Border>
                     </StackPanel>
-                </materialDesign:Card>
+                </Border>
+
+                <!-- Sections -->
+                <ListBox ItemsSource="{Binding Sections}" SelectedItem="{Binding SelectedNav}"
+                         Background="Transparent" BorderThickness="0"
+                         ItemContainerStyle="{StaticResource NavItemStyle}"
+                         ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate DataType="{x:Type vm:NavItem}">
+                            <StackPanel Orientation="Horizontal">
+                                <materialDesign:PackIcon Kind="{Binding Icon}" Width="20" Height="20"
+                                                         VerticalAlignment="Center" />
+                                <TextBlock Text="{Binding Title}" Margin="14,0,0,0" VerticalAlignment="Center"
+                                           FontSize="13.5" />
+                            </StackPanel>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </DockPanel>
+        </Border>
+
+        <!-- ============ CONTENT ============ -->
+        <Grid Grid.Column="1">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+
+            <!-- Header -->
+            <Border Grid.Row="0" Background="{StaticResource AppRail}" Padding="26,16"
+                    BorderBrush="{StaticResource AppBorder}" BorderThickness="0,0,0,1">
+                <Grid>
+                    <StackPanel VerticalAlignment="Center">
+                        <TextBlock Text="{Binding SectionTitle}" Style="{StaticResource PageTitle}" />
+                        <TextBlock Text="{Binding SectionHint}" Style="{StaticResource Hint}" Margin="0,2,0,0" />
+                    </StackPanel>
+
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                        <Border Background="{StaticResource AppSurface}" CornerRadius="8" Padding="12,7"
+                                BorderBrush="{StaticResource AppBorder}" BorderThickness="1" Margin="0,0,10,0">
+                            <StackPanel Orientation="Horizontal">
+                                <materialDesign:PackIcon Kind="SendCheck" Width="16" Height="16"
+                                                         VerticalAlignment="Center"
+                                                         Foreground="{StaticResource AppMint}" />
+                                <TextBlock Text="{Binding OffersSent}" Margin="7,0,0,0" FontWeight="Bold"
+                                           VerticalAlignment="Center" />
+                                <TextBlock Text="offerte" Margin="5,0,0,0" FontSize="11" VerticalAlignment="Center"
+                                           Foreground="{StaticResource AppTextDim}" />
+                            </StackPanel>
+                        </Border>
+
+                        <Border Background="{StaticResource AppSurface}" CornerRadius="8" Padding="12,7"
+                                BorderBrush="{StaticResource AppBorder}" BorderThickness="1" Margin="0,0,14,0">
+                            <StackPanel Orientation="Horizontal">
+                                <materialDesign:PackIcon Kind="Trophy" Width="16" Height="16"
+                                                         VerticalAlignment="Center"
+                                                         Foreground="{StaticResource AppGold}" />
+                                <TextBlock Text="{Binding OffersWon}" Margin="7,0,0,0" FontWeight="Bold"
+                                           VerticalAlignment="Center" />
+                                <TextBlock Text="accettate" Margin="5,0,0,0" FontSize="11" VerticalAlignment="Center"
+                                           Foreground="{StaticResource AppTextDim}" />
+                            </StackPanel>
+                        </Border>
+
+                        <ToggleButton Style="{StaticResource MaterialDesignSwitchToggleButton}"
+                                      IsChecked="{Binding Feed.IsLive}" VerticalAlignment="Center"
+                                      ToolTip="Aggiornamento automatico del feed" />
+                        <TextBlock Text="LIVE" Margin="9,0,0,0" FontWeight="Bold" FontSize="12"
+                                   VerticalAlignment="Center" />
+
+                        <Button Margin="12,0,0,0" Command="{Binding Feed.RefreshCommand}"
+                                Style="{StaticResource MaterialDesignIconButton}" ToolTip="Aggiorna adesso"
+                                Foreground="{StaticResource AppTextDim}">
+                            <materialDesign:PackIcon Kind="Refresh" />
+                        </Button>
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <!-- Pages: all alive, only one visible (the browser must keep its session) -->
+            <Grid Grid.Row="1">
+                <pages:DashboardPage DataContext="{Binding}"
+                                     Visibility="{Binding DataContext.Section, RelativeSource={RelativeSource AncestorType=Window},
+                                                  Converter={StaticResource EqualsToVis}, ConverterParameter=Dashboard}" />
+
+                <pages:PricingPage DataContext="{Binding Pricing}"
+                                   Visibility="{Binding DataContext.Section, RelativeSource={RelativeSource AncestorType=Window},
+                                                Converter={StaticResource EqualsToVis}, ConverterParameter=Pricing}" />
+
+                <pages:UnitsPage DataContext="{Binding Units}"
+                                 Visibility="{Binding DataContext.Section, RelativeSource={RelativeSource AncestorType=Window},
+                                              Converter={StaticResource EqualsToVis}, ConverterParameter=Units}" />
+
+                <pages:ExtrasPage DataContext="{Binding Extras}"
+                                  Visibility="{Binding DataContext.Section, RelativeSource={RelativeSource AncestorType=Window},
+                                               Converter={StaticResource EqualsToVis}, ConverterParameter=Extras}" />
+
+                <pages:MessagePage DataContext="{Binding Message}"
+                                   Visibility="{Binding DataContext.Section, RelativeSource={RelativeSource AncestorType=Window},
+                                                Converter={StaticResource EqualsToVis}, ConverterParameter=Message}" />
+
+                <pages:ChatPage x:Name="ChatPanel"
+                                Visibility="{Binding DataContext.Section, RelativeSource={RelativeSource AncestorType=Window},
+                                             Converter={StaticResource EqualsToVis}, ConverterParameter=Chat}" />
+
+                <pages:AccountPage DataContext="{Binding Account}"
+                                   Visibility="{Binding DataContext.Section, RelativeSource={RelativeSource AncestorType=Window},
+                                                Converter={StaticResource EqualsToVis}, ConverterParameter=Account}" />
+            </Grid>
+
+            <!-- Status bar -->
+            <Border Grid.Row="2" Background="{StaticResource AppRail}" Padding="26,10"
+                    BorderBrush="{StaticResource AppBorder}" BorderThickness="0,1,0,0">
+                <DockPanel>
+                    <TextBlock DockPanel.Dock="Right" Foreground="{StaticResource AppTextDim}" FontSize="11.5"
+                               Text="{Binding Feed.StatusMessage}" />
+                    <TextBlock Text="{Binding StatusMessage}" FontSize="11.5" FontWeight="Medium"
+                               Foreground="{StaticResource AppText}" TextTrimming="CharacterEllipsis" />
+                </DockPanel>
             </Border>
         </Grid>
 
-        <!-- Status bar -->
-        <materialDesign:ColorZone Grid.Row="2" Mode="PrimaryDark" Padding="20,8">
-            <DockPanel>
-                <TextBlock DockPanel.Dock="Right" Opacity="0.85"
-                           Text="{Binding Count, StringFormat='Richieste: {0}'}" />
-                <TextBlock Text="{Binding StatusMessage}" FontWeight="Medium" />
-            </DockPanel>
-        </materialDesign:ColorZone>
+        <!-- ============ IN-APP LOGIN OVERLAY (no separate window) ============ -->
+        <Border Grid.Column="0" Grid.ColumnSpan="2" Background="#E60B0F14"
+                Visibility="{Binding IsLoginVisible, Converter={StaticResource BoolToVis}}">
+            <!-- Sized by margin so the Eldorado login always has room, on any screen -->
+            <Border Margin="70,40" MaxWidth="1180" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                    Background="{StaticResource AppSurface}" CornerRadius="14"
+                    BorderBrush="{StaticResource AppBorder}" BorderThickness="1">
+                <DockPanel>
+                    <Grid DockPanel.Dock="Top" Margin="18,14">
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <materialDesign:PackIcon Kind="Google" VerticalAlignment="Center"
+                                                     Foreground="{StaticResource AppAccent}" />
+                            <TextBlock Text="{Binding LoginTitle}" Margin="10,0,0,0" FontWeight="Bold"
+                                       VerticalAlignment="Center" />
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                            <Button Height="32" Padding="14,0" VerticalAlignment="Center"
+                                    Style="{StaticResource MaterialDesignRaisedButton}"
+                                    Background="{StaticResource AppMint}" BorderBrush="{StaticResource AppMint}"
+                                    Foreground="#0B0F14" Command="{Binding ConfirmLoginCommand}"
+                                    ToolTip="Se sei già dentro, prendi la sessione adesso">
+                                <StackPanel Orientation="Horizontal">
+                                    <materialDesign:PackIcon Kind="Check" VerticalAlignment="Center" />
+                                    <TextBlock Text="Ho fatto l'accesso" Margin="7,0,0,0"
+                                               VerticalAlignment="Center" FontWeight="SemiBold" />
+                                </StackPanel>
+                            </Button>
+                            <Button Margin="6,0,0,0" Style="{StaticResource MaterialDesignIconButton}"
+                                    Command="{Binding CancelLoginCommand}" ToolTip="Annulla accesso"
+                                    Foreground="{StaticResource AppTextDim}">
+                                <materialDesign:PackIcon Kind="Close" />
+                            </Button>
+                        </StackPanel>
+                    </Grid>
+
+                    <Border DockPanel.Dock="Bottom" Background="#1F2A36" Padding="16,10">
+                        <TextBlock Style="{StaticResource Hint}" Text="{Binding LoginHint}" />
+                    </Border>
+
+                    <wv2:WebView2 x:Name="LoginBrowser" Margin="0,0,0,0" />
+                </DockPanel>
+            </Border>
+        </Border>
     </Grid>
 </Window>

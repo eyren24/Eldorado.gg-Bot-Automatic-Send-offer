@@ -3,19 +3,24 @@
 Detect whether Eldorado has enabled the Cognito Hosted UI / Google (OAuth) login
 on the seller BOT app client.
 
-Today the bot client `1956req5ro9drdtbf5i6kis4la` has NO Hosted UI configured, so
-hitting /oauth2/authorize returns "Login pages unavailable. Please contact an
-administrator." When Eldorado turns on Google-supported auth for THIS client
-(their "summer 2026" plan), that endpoint will instead serve a real login page or
-redirect to Google -- that flip is the signal.
+*** SUPERSEDED -- USE THE APP INSTEAD ***
 
-CAVEAT: this only detects case (A) -- same client gets Hosted UI enabled. If they
-instead publish a NEW OAuth client id, this probe can't see it; you'd learn that
-from api@eldorado.gg. So: DISABLED here = "not yet (on this client)", ENABLED =
-"go", and either way confirm with Eldorado before rewiring the app.
+    EldoradoApp.exe --check-google
 
-Just GETs a public OAuth endpoint with our own client id (what a browser does when
-you click "login"). No credentials, nothing destructive.
+Cloudflare now runs a MANAGED CHALLENGE over the whole login.eldorado.gg zone
+(/oauth2/authorize and /oauth2/token alike), so this script -- and curl, and any
+HttpClient -- can only ever get a 403 "Just a moment..." page back. It cannot read
+the real state any more. The app's check drives the embedded WebView2, which solves
+the challenge like a normal browser, and writes its verdict to
+%AppData%\\EldoradoApp\\google-auth-check.txt.
+
+STATUS as of 2026-08-11: ENABLED. /oauth2/authorize?identity_provider=Google now
+redirects to accounts.google.com (Google client 818133653938-..., coming back to
+https://login.eldorado.gg/oauth2/idpresponse). It used to answer "Login pages
+unavailable"; that has flipped.
+
+This file is kept because it still works from any network that isn't challenged,
+and it documents the endpoint being probed. No credentials, nothing destructive.
 
 Usage:
   python check_google_auth.py            # one-shot check
@@ -103,10 +108,12 @@ def main() -> int:
         print(f"  Body: {snippet}")
 
     if verdict == "BLOCKED_CLOUDFLARE":
-        print(">> Cloudflare anti-bot blocked the automated request -- this probe can't read "
-              "the real state. Check manually in a REAL browser instead:")
-        print(f"   {authorize_url()}")
-        print(">>   'Login pages unavailable' = still OFF | a Cognito/Google login = ON.")
+        print(">> Cloudflare's managed challenge blocked this request -- expected, it covers "
+              "the whole login.eldorado.gg zone. Run the in-app check instead, which uses a "
+              "real browser engine:")
+        print("     EldoradoApp.exe --check-google")
+        print("   Verdict is written to %AppData%\\EldoradoApp\\google-auth-check.txt")
+        print(">> Last known state (2026-08-11): ENABLED -- authorize redirects to Google.")
         return 2
     if verdict == "DISABLED":
         print(">> Google/OAuth still OFF on the bot client. Keep using (or waiting for) "

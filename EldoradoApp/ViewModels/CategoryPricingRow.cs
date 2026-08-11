@@ -3,7 +3,11 @@ using EldoradoApp.Models;
 
 namespace EldoradoApp.ViewModels;
 
-/// <summary>Editable row in the per-category price list: price/unit, quantity range, delivery time, on/off.</summary>
+/// <summary>
+/// Editable row in the category list: whether the bot answers the category, how fast it
+/// promises delivery, and — only for categories that have no rank range — a flat price
+/// that replaces the ladder (0 = price by ladder).
+/// </summary>
 public sealed partial class CategoryPricingRow : ObservableObject
 {
     public string GameId { get; }
@@ -11,7 +15,8 @@ public sealed partial class CategoryPricingRow : ObservableObject
     public string CategoryName { get; }
 
     [ObservableProperty] private bool _enabled;
-    [ObservableProperty] private decimal _pricePerUnit;
+    [ObservableProperty] private BoostingCategoryKind _kind;
+    [ObservableProperty] private decimal _flatPrice;
     [ObservableProperty] private int _quantity;
     [ObservableProperty] private int _minQuantity;
     [ObservableProperty] private BoostingDeliveryTime _deliveryTime;
@@ -22,7 +27,8 @@ public sealed partial class CategoryPricingRow : ObservableObject
         CategoryId = source.CategoryId;
         CategoryName = source.CategoryName;
         _enabled = source.Enabled;
-        _pricePerUnit = source.PricePerUnit;
+        _kind = source.Kind;
+        _flatPrice = source.FlatPrice;
         _quantity = source.Quantity;
         _minQuantity = source.MinQuantity;
         _deliveryTime = source.DeliveryTime;
@@ -34,7 +40,8 @@ public sealed partial class CategoryPricingRow : ObservableObject
         CategoryId = CategoryId,
         CategoryName = CategoryName,
         Enabled = Enabled,
-        PricePerUnit = PricePerUnit,
+        Kind = Kind,
+        FlatPrice = FlatPrice,
         Quantity = Quantity,
         MinQuantity = MinQuantity,
         DeliveryTime = DeliveryTime,

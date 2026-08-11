@@ -6,13 +6,102 @@
     <Application.Resources>
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
-                <materialDesign:BundledTheme BaseTheme="Dark" PrimaryColor="Amber" SecondaryColor="Orange" />
+                <materialDesign:BundledTheme BaseTheme="Dark" PrimaryColor="Red" SecondaryColor="Amber" />
                 <ResourceDictionary Source="pack://application:,,,/MaterialDesignThemes.Wpf;component/Themes/MaterialDesign2.Defaults.xaml" />
             </ResourceDictionary.MergedDictionaries>
 
+            <!-- Converters -->
             <conv:RankToBrushConverter x:Key="RankToBrush" />
             <BooleanToVisibilityConverter x:Key="BoolToVis" />
             <conv:InverseBooleanToVisibilityConverter x:Key="InverseBoolToVis" />
+            <conv:EqualityToVisibilityConverter x:Key="EqualsToVis" />
+            <conv:EqualityToBooleanConverter x:Key="EqualsToBool" />
+
+            <!-- Palette: dark, high-contrast, Valorant-flavoured -->
+            <SolidColorBrush x:Key="AppBackground" Color="#0B0F14" />
+            <SolidColorBrush x:Key="AppRail" Color="#0E141B" />
+            <SolidColorBrush x:Key="AppSurface" Color="#141C25" />
+            <SolidColorBrush x:Key="AppSurfaceAlt" Color="#1B2531" />
+            <SolidColorBrush x:Key="AppBorder" Color="#243140" />
+            <SolidColorBrush x:Key="AppAccent" Color="#FF4655" />
+            <SolidColorBrush x:Key="AppAccentSoft" Color="#33FF4655" />
+            <SolidColorBrush x:Key="AppMint" Color="#3BE8B0" />
+            <SolidColorBrush x:Key="AppGold" Color="#FFC857" />
+            <SolidColorBrush x:Key="AppText" Color="#E9EEF4" />
+            <SolidColorBrush x:Key="AppTextDim" Color="#8A99AA" />
+
+            <!-- Typography -->
+            <Style x:Key="PageTitle" TargetType="TextBlock">
+                <Setter Property="FontSize" Value="22" />
+                <Setter Property="FontWeight" Value="Bold" />
+                <Setter Property="Foreground" Value="{StaticResource AppText}" />
+            </Style>
+
+            <Style x:Key="CardTitle" TargetType="TextBlock">
+                <Setter Property="FontSize" Value="12" />
+                <Setter Property="FontWeight" Value="Bold" />
+                <Setter Property="Foreground" Value="{StaticResource AppTextDim}" />
+                <Setter Property="Margin" Value="0,0,0,12" />
+            </Style>
+
+            <Style x:Key="Hint" TargetType="TextBlock">
+                <Setter Property="FontSize" Value="11.5" />
+                <Setter Property="Foreground" Value="{StaticResource AppTextDim}" />
+                <Setter Property="TextWrapping" Value="Wrap" />
+            </Style>
+
+            <!-- Surfaces -->
+            <Style x:Key="Card" TargetType="Border">
+                <Setter Property="Background" Value="{StaticResource AppSurface}" />
+                <Setter Property="BorderBrush" Value="{StaticResource AppBorder}" />
+                <Setter Property="BorderThickness" Value="1" />
+                <Setter Property="CornerRadius" Value="12" />
+                <Setter Property="Padding" Value="18" />
+                <Setter Property="Margin" Value="0,0,0,14" />
+            </Style>
+
+            <!-- Navigation rail entry -->
+            <Style x:Key="NavItemStyle" TargetType="ListBoxItem">
+                <Setter Property="Foreground" Value="{StaticResource AppTextDim}" />
+                <Setter Property="Margin" Value="10,2" />
+                <Setter Property="Cursor" Value="Hand" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="ListBoxItem">
+                            <Border x:Name="Bg" CornerRadius="10" Padding="12,10" Background="Transparent">
+                                <Grid>
+                                    <Border x:Name="Marker" Width="3" HorizontalAlignment="Left" CornerRadius="2"
+                                            Margin="-8,2,0,2" Background="Transparent" />
+                                    <ContentPresenter VerticalAlignment="Center" />
+                                </Grid>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="Bg" Property="Background" Value="#16202B" />
+                                    <Setter Property="Foreground" Value="{StaticResource AppText}" />
+                                </Trigger>
+                                <Trigger Property="IsSelected" Value="True">
+                                    <Setter TargetName="Bg" Property="Background" Value="{StaticResource AppAccentSoft}" />
+                                    <Setter TargetName="Marker" Property="Background" Value="{StaticResource AppAccent}" />
+                                    <Setter Property="Foreground" Value="{StaticResource AppText}" />
+                                    <Setter Property="FontWeight" Value="SemiBold" />
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
+            <!-- Compact editors used across the settings pages -->
+            <Style x:Key="FieldBox" TargetType="TextBox" BasedOn="{StaticResource MaterialDesignOutlinedTextBox}">
+                <Setter Property="Margin" Value="0,0,12,10" />
+                <Setter Property="VerticalAlignment" Value="Center" />
+            </Style>
+
+            <Style x:Key="FieldCombo" TargetType="ComboBox" BasedOn="{StaticResource MaterialDesignOutlinedComboBox}">
+                <Setter Property="Margin" Value="0,0,12,10" />
+                <Setter Property="VerticalAlignment" Value="Center" />
+            </Style>
         </ResourceDictionary>
     </Application.Resources>
 </Application>
