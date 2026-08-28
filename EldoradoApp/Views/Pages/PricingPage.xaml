@@ -133,8 +133,10 @@
                                     </DataGridTemplateColumn.CellTemplate>
                                 </DataGridTemplateColumn>
 
+                                <!-- Bound to the text, not the number: that's what makes the price
+                                     apply while you type (see MoneyText). -->
                                 <DataGridTextColumn Header="Prezzo divisione" Width="150"
-                                                    Binding="{Binding Price, StringFormat=N2, UpdateSourceTrigger=LostFocus}" />
+                                                    Binding="{Binding PriceInput, UpdateSourceTrigger=PropertyChanged}" />
                             </DataGrid.Columns>
                         </DataGrid>
                     </DockPanel>

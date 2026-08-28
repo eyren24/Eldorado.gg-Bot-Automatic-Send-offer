@@ -114,7 +114,7 @@
                             <DataGridTemplateColumn Header="Rank" Width="*" IsReadOnly="True"
                                                     CellTemplate="{StaticResource TierRowTemplate}" />
                             <DataGridTextColumn Header="€ per partita" Width="130"
-                                                Binding="{Binding PricePerUnit, StringFormat=N2, UpdateSourceTrigger=LostFocus}" />
+                                                Binding="{Binding PricePerUnitInput, UpdateSourceTrigger=PropertyChanged}" />
                         </DataGrid.Columns>
                     </DataGrid>
                 </DockPanel>
@@ -176,7 +176,7 @@
                             <DataGridTemplateColumn Header="Rank" Width="*" IsReadOnly="True"
                                                     CellTemplate="{StaticResource TierRowTemplate}" />
                             <DataGridTextColumn Header="€ per vittoria" Width="130"
-                                                Binding="{Binding PricePerUnit, StringFormat=N2, UpdateSourceTrigger=LostFocus}" />
+                                                Binding="{Binding PricePerUnitInput, UpdateSourceTrigger=PropertyChanged}" />
                         </DataGrid.Columns>
                     </DataGrid>
                 </DockPanel>

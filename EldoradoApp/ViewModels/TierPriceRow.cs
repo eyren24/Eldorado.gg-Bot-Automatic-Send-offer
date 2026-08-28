@@ -14,25 +14,68 @@ public sealed partial class TierPriceRow : ObservableObject
     private readonly TierUnitPrice _model;
     private readonly Action _onChanged;
 
+    /// <summary>Set while <see cref="PricePerUnit"/> rewrites the cell text, so it isn't read back as an edit.</summary>
+    private bool _formatting;
+
     public string Tier => _model.Tier;
 
     public Brush TierBrush { get; }
 
-    [ObservableProperty] private decimal _pricePerUnit;
+    /// <summary>
+    /// The text in the price cell — this is what the grid binds, so the price lands on the
+    /// model at every keystroke instead of when the cell loses focus (see <see cref="MoneyText"/>).
+    /// </summary>
+    [ObservableProperty] private string _pricePerUnitInput;
 
     public TierPriceRow(TierUnitPrice model, Action onChanged)
     {
         _model = model;
         _onChanged = onChanged;
-        _pricePerUnit = model.PricePerUnit;
+        _pricePerUnitInput = MoneyText.Format(model.PricePerUnit);
         TierBrush = new SolidColorBrush(
             (Color)ColorConverter.ConvertFromString(ValorantRanks.ColorHex(model.Tier))!);
         TierBrush.Freeze();
     }
 
-    partial void OnPricePerUnitChanged(decimal value)
+    /// <summary>The price itself; setting it rewrites the cell text, reading it goes to the model.</summary>
+    public decimal PricePerUnit
     {
-        _model.PricePerUnit = value;
+        get => _model.PricePerUnit;
+        set
+        {
+            if (value == _model.PricePerUnit &&
+                MoneyText.TryParse(PricePerUnitInput, out var shown) && shown == value)
+            {
+                return;   // nothing moved: don't re-run the simulator and the request feed
+            }
+
+            _model.PricePerUnit = value;
+
+            _formatting = true;
+            try
+            {
+                PricePerUnitInput = MoneyText.Format(value);
+            }
+            finally
+            {
+                _formatting = false;
+            }
+
+            OnPropertyChanged(nameof(PricePerUnit));
+            _onChanged();
+        }
+    }
+
+    partial void OnPricePerUnitInputChanged(string value)
+    {
+        // A half-typed cell keeps the last good price rather than blanking it to zero.
+        if (_formatting || !MoneyText.TryParse(value, out var price) || price == _model.PricePerUnit)
+        {
+            return;
+        }
+
+        _model.PricePerUnit = price;
+        OnPropertyChanged(nameof(PricePerUnit));
         _onChanged();
     }
 }

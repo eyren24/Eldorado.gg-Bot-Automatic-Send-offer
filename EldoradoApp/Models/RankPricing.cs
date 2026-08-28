@@ -54,20 +54,36 @@ public sealed class RankPricing
         Divisions.FirstOrDefault(d =>
             string.Equals(d.Division, division, StringComparison.OrdinalIgnoreCase))?.Price ?? 0m;
 
-    /// <summary>Adds a zero-priced row for every ladder division that has none yet.</summary>
+    /// <summary>
+    /// Adds a zero-priced row for every ladder division that has none yet, reusing the
+    /// existing <see cref="DivisionPrice"/> objects. Reuse is not an optimisation: the
+    /// price-list rows in the UI write straight through to these instances, so replacing
+    /// them here (this runs on every save and on every bot cycle) would silently detach
+    /// the editor and every later price change would be lost.
+    /// </summary>
     public void SyncWithLadder()
     {
-        var known = Divisions
-            .GroupBy(d => d.Division, StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(g => g.Key, g => g.First().Price, StringComparer.OrdinalIgnoreCase);
+        var known = new Dictionary<string, DivisionPrice>(StringComparer.OrdinalIgnoreCase);
+        foreach (var row in Divisions)
+        {
+            known.TryAdd(row.Division, row);
+        }
 
-        Divisions = Ladder.Divisions
-            .Select(name => new DivisionPrice
+        var synced = new List<DivisionPrice>(Ladder.Divisions.Count);
+        foreach (var name in Ladder.Divisions)
+        {
+            if (known.Remove(name, out var existing))
             {
-                Division = name,
-                Price = known.TryGetValue(name, out var price) ? price : 0m
-            })
-            .ToList();
+                existing.Division = name;   // adopt the ladder's spelling
+                synced.Add(existing);
+            }
+            else
+            {
+                synced.Add(new DivisionPrice { Division = name });
+            }
+        }
+
+        Divisions = synced;
     }
 
     /// <summary>A sane starting list: cheap in low elo, steeply more expensive near the top.</summary>

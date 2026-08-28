@@ -51,20 +51,35 @@ public sealed class UnitPricing
             ? 0m
             : Tiers.FirstOrDefault(t => string.Equals(t.Tier, tier, StringComparison.OrdinalIgnoreCase))?.PricePerUnit ?? 0m;
 
-    /// <summary>Adds a row for every Valorant tier that doesn't have one yet.</summary>
+    /// <summary>
+    /// Adds a row for every Valorant tier that doesn't have one yet, reusing the existing
+    /// <see cref="TierUnitPrice"/> objects — the editor rows write straight through to
+    /// them, so replacing them here would detach the editor (see
+    /// <see cref="RankPricing.SyncWithLadder"/>).
+    /// </summary>
     public void SyncWithTiers()
     {
-        var known = Tiers
-            .GroupBy(t => t.Tier, StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(g => g.Key, g => g.First().PricePerUnit, StringComparer.OrdinalIgnoreCase);
+        var known = new Dictionary<string, TierUnitPrice>(StringComparer.OrdinalIgnoreCase);
+        foreach (var row in Tiers)
+        {
+            known.TryAdd(row.Tier, row);
+        }
 
-        Tiers = ValorantRanks.Tiers
-            .Select(tier => new TierUnitPrice
+        var synced = new List<TierUnitPrice>(ValorantRanks.Tiers.Count);
+        foreach (var tier in ValorantRanks.Tiers)
+        {
+            if (known.Remove(tier, out var existing))
             {
-                Tier = tier,
-                PricePerUnit = known.TryGetValue(tier, out var price) ? price : 0m
-            })
-            .ToList();
+                existing.Tier = tier;
+                synced.Add(existing);
+            }
+            else
+            {
+                synced.Add(new TierUnitPrice { Tier = tier });
+            }
+        }
+
+        Tiers = synced;
     }
 
     /// <summary>Clamps a requested game count into the allowed range.</summary>
