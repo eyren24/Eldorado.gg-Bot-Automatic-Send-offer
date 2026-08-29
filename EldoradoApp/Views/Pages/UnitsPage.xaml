@@ -36,7 +36,7 @@
                 <StackPanel Grid.Column="0" Margin="0,0,20,0">
                     <TextBlock Text="CATEGORIE A PARTITE" Style="{StaticResource CardTitle}" />
                     <TextBlock Style="{StaticResource Hint}"
-                               Text="Placement e Net Wins non hanno un range di rank, quindi non usano il listino per divisione: si pagano a partita. Il prezzo è prezzoBase + (prezzo del rank × numero di partite). Per i placement il rank è quello della scorsa stagione, per le net wins quello attuale. Il numero di partite viene letto dalla richiesta (es. «10 wins», «x5»); se manca si usa il valore predefinito." />
+                               Text="Placement e Net Wins non hanno un range di rank, quindi non usano il listino per divisione: si pagano a partita. Il prezzo è prezzoBase + (prezzo del rank × numero di partite). Per i placement il rank è quello della scorsa stagione, per le net wins quello attuale. Il numero di partite viene letto dalla richiesta; se manca si usa il valore predefinito. «Unranked» è un rank a sé, non il più economico: l'MMR nascosto può piazzare un account senza rank in Oro o Platino, quindi ha il suo prezzo per partita." />
                 </StackPanel>
 
                 <Button Grid.Column="1" VerticalAlignment="Center" Height="38" Padding="18,0"

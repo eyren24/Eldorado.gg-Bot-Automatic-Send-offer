@@ -11,6 +11,30 @@ public static class ValorantRanks
         "Diamond", "Ascendant", "Immortal", "Radiant"
     ];
 
+    /// <summary>
+    /// A player with no rank yet — the state everyone starts a season in.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately <b>not</b> part of <see cref="Tiers"/>: it has no place on the climbing
+    /// ladder (you never boost <i>to</i> Unranked, and Eldorado's rank-boost form doesn't
+    /// offer it). It is a tier of its own for placements, where it is the most common
+    /// starting point — and not the cheapest one, because what an Unranked account places
+    /// into is decided by Valorant's hidden MMR: the same "Unranked" can be a Gold or a
+    /// Platinum underneath. It therefore gets its own per-game price, never Iron's.
+    /// </remarks>
+    public const string Unranked = "Unranked";
+
+    /// <summary>
+    /// Tiers a per-game category (placements, net wins) can be priced on: the ladder
+    /// tiers plus <see cref="Unranked"/>.
+    /// </summary>
+    public static readonly IReadOnlyList<string> UnitTiers = [Unranked, .. Tiers];
+
+    /// <summary>True when a rank is the season-start "no rank yet" state.</summary>
+    public static bool IsUnranked(string? rank) =>
+        rank is not null && rank.Trim().Replace("-", "").Replace(" ", "")
+            .Equals("unranked", StringComparison.OrdinalIgnoreCase);
+
     public static string Tier(string rank)
     {
         if (string.IsNullOrWhiteSpace(rank))
@@ -24,6 +48,7 @@ public static class ValorantRanks
 
     public static string ColorHex(string rank) => Tier(rank) switch
     {
+        Unranked => "#8E9AAF",
         "Iron" => "#6E7174",
         "Bronze" => "#A1764B",
         "Silver" => "#C4CACE",

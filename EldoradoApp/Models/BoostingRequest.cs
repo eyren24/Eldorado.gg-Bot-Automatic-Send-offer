@@ -5,10 +5,11 @@ namespace EldoradoApp.Models;
 /// <c>boostingRequests/received</c> feed) — work to bid on.
 /// </summary>
 /// <remarks>
-/// <see cref="RawJson"/> keeps the untouched server payload: the documented DTO only
-/// exposes the category title, but live responses may carry the rank range, region and
-/// buyer options under names we haven't mapped. Parsing falls back to it, and the
-/// request inspector in the UI shows it verbatim so the parser can be calibrated.
+/// The feed itself is thin: it carries the category label and the buyer, nothing else.
+/// The rank range, server and game count live on the request's <b>form answers</b>, which
+/// is what <see cref="Facts"/> holds once the request has been hydrated from
+/// <c>boostingRequests/{id}/details</c>. <see cref="RawJson"/> keeps the untouched feed
+/// payload for the inspector, and parsing still falls back to it when hydration failed.
 /// </remarks>
 public sealed record BoostingRequest(
     string Id,
@@ -19,9 +20,14 @@ public sealed record BoostingRequest(
     string? BuyerUsername,
     bool IsBuyerMuted,
     DateTimeOffset CreatedDate,
-    string? RawJson = null)
+    string? RawJson = null,
+    BoostingRequestFacts? Facts = null,
+    string? DetailsJson = null)
 {
     /// <summary>Everything textual about the request, for rank/extra detection.</summary>
-    public string SearchText => string.Join(" \n ", new[] { BoostingCategoryTitle, RawJson }
+    public string SearchText => string.Join(" \n ", new[]
+        {
+            BoostingCategoryTitle, Facts?.Text, DetailsJson, RawJson
+        }
         .Where(s => !string.IsNullOrWhiteSpace(s)));
 }

@@ -65,8 +65,8 @@ public sealed class UnitPricing
             known.TryAdd(row.Tier, row);
         }
 
-        var synced = new List<TierUnitPrice>(ValorantRanks.Tiers.Count);
-        foreach (var tier in ValorantRanks.Tiers)
+        var synced = new List<TierUnitPrice>(ValorantRanks.UnitTiers.Count);
+        foreach (var tier in ValorantRanks.UnitTiers)
         {
             if (known.Remove(tier, out var existing))
             {
@@ -80,6 +80,15 @@ public sealed class UnitPricing
         }
 
         Tiers = synced;
+
+        // A settings file written before Unranked existed gains the row at 0, which would
+        // silently make every placement unpriceable. Seed it from Gold — mid-ladder, because
+        // hidden MMR puts an Unranked account anywhere — and leave it for the seller to tune.
+        var unranked = synced.FirstOrDefault(t => t.Tier == ValorantRanks.Unranked);
+        if (unranked is { PricePerUnit: <= 0 })
+        {
+            unranked.PricePerUnit = PriceOf("Gold");
+        }
     }
 
     /// <summary>Clamps a requested game count into the allowed range.</summary>
@@ -105,6 +114,8 @@ public sealed class UnitPricing
     /// <summary>Placement matches: 5 games by default, priced on last season's tier.</summary>
     public static UnitPricing CreatePlacementsDefault() => Build(5m, 5, tier => tier switch
     {
+        // Mid-ladder on purpose: an Unranked account's hidden MMR can place it anywhere.
+        ValorantRanks.Unranked => 2.80m,
         "Iron" => 1.50m,
         "Bronze" => 1.80m,
         "Silver" => 2.20m,
@@ -120,6 +131,9 @@ public sealed class UnitPricing
     /// <summary>Net wins: priced per win on the current tier.</summary>
     public static UnitPricing CreateNetWinsDefault() => Build(3m, 10, tier => tier switch
     {
+        // Eldorado's net-wins form has no Unranked option, but the row exists so the two
+        // price lists stay the same shape in the editor.
+        ValorantRanks.Unranked => 2.40m,
         "Iron" => 1.20m,
         "Bronze" => 1.50m,
         "Silver" => 1.90m,

@@ -4,3 +4,10 @@ obj/
 /packages/
 riderModule.iml
 /_ReSharper.Caches/
+
+# Credenziali e dump diagnostici: mai nel repo.
+scripts/token.txt
+scripts/received-raw.json
+scripts/detail-*.json
+scripts/formconfig-*.json
+scripts/probe/

@@ -50,26 +50,67 @@ public static partial class BoostingCategoryParser
     private static partial Regex QuantityRegex();
 
     /// <summary>Parses a request against the seller's settings (ladder + extras).</summary>
+    /// <remarks>
+    /// The buyer's own form answers (<see cref="BoostingRequest.Facts"/>) are authoritative:
+    /// the category title is a fixed label like "Rank Boost" and never contains a rank. Text
+    /// parsing stays as the fallback for un-hydrated requests and for the price simulator.
+    /// </remarks>
     public static ParsedBoostingCategory Parse(BoostingRequest request, BoostingBotSettings settings)
     {
         var title = request.BoostingCategoryTitle ?? "";
-        var (current, desired) = ReadRange(title, settings.Pricing.Ladder);
+        var ladder = settings.Pricing.Ladder;
+        var facts = request.Facts;
 
-        // The title is the reliable source; only dig into the raw payload if it had nothing.
+        // Unranked isn't on the ladder and never will be, but it is a real starting point
+        // for placements, so it is carried through verbatim rather than dropped.
+        var current = ValorantRanks.IsUnranked(facts?.CurrentRank)
+            ? ValorantRanks.Unranked
+            : ladder.Canonical(facts?.CurrentRank);
+
+        var desired = ladder.Canonical(facts?.DesiredRank);
+
+        // Nothing usable from the form: fall back to reading the free text.
+        if (current is null)
+        {
+            (current, desired) = ReadRange(title, ladder);
+        }
+
         if (current is null && !string.IsNullOrWhiteSpace(request.RawJson))
         {
-            (current, desired) = ReadRange(request.RawJson, settings.Pricing.Ladder);
+            (current, desired) = ReadRange(request.RawJson, ladder);
         }
 
         var haystack = request.SearchText;
-        var region = FindRegion(haystack);
+        var region = CanonicalServer(facts?.Server) ?? FindRegion(haystack);
         var extras = settings.Extras
-            .Where(e => e.Enabled && e.Matches(haystack))
+            .Where(e => e.Enabled && e.Matches(ExtraHaystack(request)))
             .Select(e => e.Id)
             .ToList();
 
-        return new ParsedBoostingCategory(title, region, current, desired, extras, FindQuantity(title));
+        var quantity = facts?.Quantity ?? FindQuantity(title);
+
+        return new ParsedBoostingCategory(title, region, current, desired, extras, quantity);
     }
+
+    /// <summary>
+    /// What the seller's extra-option keywords are matched against.
+    /// </summary>
+    /// <remarks>
+    /// Only the options the buyer actually ticked on the request form — "Solo queue",
+    /// "Stream", "Completion Method: Duo". Deliberately <b>not</b> their free-text note:
+    /// that field is open to anyone, it is already used to spam the feed with adverts, and
+    /// a stranger writing "urgent express" must not be able to add a surcharge to your bid
+    /// and price you out of the auction. Un-hydrated requests (and the extras simulator,
+    /// which has no form answers) keep matching on the full text.
+    /// </remarks>
+    private static string ExtraHaystack(BoostingRequest request) =>
+        request.Facts is { } facts
+            ? string.Join(" \n ", facts.Toggles)
+            : request.SearchText;
+
+    /// <summary>The buyer's picked server ("EU", "NA", …) mapped onto the seller's region codes.</summary>
+    private static string? CanonicalServer(string? server) =>
+        string.IsNullOrWhiteSpace(server) ? null : CanonicalRegion(server);
 
     /// <summary>Title-only overload (used by the price simulator and by tests).</summary>
     public static ParsedBoostingCategory Parse(string? title, RankLadder? ladder = null)

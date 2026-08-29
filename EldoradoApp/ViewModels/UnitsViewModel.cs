@@ -81,8 +81,10 @@ public sealed partial class UnitsViewModel : ObservableObject
                 NetWinTiers.Add(new TierPriceRow(tier, OnEdited));
             }
 
+            // Includes Unranked: it's the usual starting point for placements, so the
+            // simulator has to be able to pick it.
             Tiers.Clear();
-            foreach (var tier in ValorantRanks.Tiers)
+            foreach (var tier in ValorantRanks.UnitTiers)
             {
                 Tiers.Add(tier);
             }

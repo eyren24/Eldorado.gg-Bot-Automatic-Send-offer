@@ -10,17 +10,25 @@ namespace EldoradoApp.Services;
 /// Requires an authenticated <see cref="HttpClient"/> (see <see cref="EldoradoAuthHandler"/>).
 /// </summary>
 /// <remarks>
-/// Each item keeps its original JSON: the documented DTO only carries the category
-/// title, but live payloads may also describe the rank range and the buyer's options,
-/// which is exactly what the pricing engine wants to read.
+/// The feed is thin — id, buyer, category label, nothing about the job itself — so every
+/// page is handed to a <see cref="BoostingRequestHydrator"/>, which fetches each request's
+/// form answers (current rank, desired rank, server, game count) and attaches them as
+/// <see cref="BoostingRequest.Facts"/>. Without that step nothing downstream can price a
+/// request, because the rank range simply is not in this response.
 /// </remarks>
 public sealed class EldoradoBoostingRequestClient(HttpClient http) : IBoostingRequestClient
 {
+    private readonly BoostingRequestHydrator _hydrator = new(http);
+
+    /// <summary>Form schemas and fetched details, exposed for the request inspector.</summary>
+    public BoostingRequestHydrator Hydrator => _hydrator;
+
     public async Task<IReadOnlyList<BoostingRequest>> GetReceivedRequestsAsync(
         BoostingRequestFilter filter = BoostingRequestFilter.ActiveRequests,
         string? gameId = null,
         int pageSize = 50,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        bool hydrate = true)
     {
         var path = $"api/boostingOffers/me/boostingRequests/received?filter={filter}&pageSize={pageSize}";
         if (!string.IsNullOrWhiteSpace(gameId))
@@ -54,7 +62,20 @@ public sealed class EldoradoBoostingRequestClient(HttpClient http) : IBoostingRe
             }
         }
 
-        return list;
+        if (!hydrate)
+        {
+            return list;
+        }
+
+        // The feed carries no rank range; the form answers do.
+        var hydrated = await _hydrator.HydrateAsync(list, cancellationToken).ConfigureAwait(false);
+
+        if (_hydrator.FailedCount > 0)
+        {
+            ApiLog.Write($"[hydrate] {_hydrator.FailedCount}/{hydrated.Count} richieste senza dettagli leggibili");
+        }
+
+        return hydrated;
     }
 
     private static BoostingRequest Map(BoostingRequestDto dto, string rawJson) => new(

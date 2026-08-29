@@ -245,8 +245,10 @@ public sealed class AutoOfferEngine(
         IReadOnlyList<BoostingRequest> won;
         try
         {
+            // Won requests are only counted and announced, never priced: skip the detail fetch.
             won = await requests
-                .GetReceivedRequestsAsync(BoostingRequestFilter.OfferWon, settings.GameId, 50, cancellationToken)
+                .GetReceivedRequestsAsync(
+                    BoostingRequestFilter.OfferWon, settings.GameId, 50, cancellationToken, hydrate: false)
                 .ConfigureAwait(false);
         }
         catch
@@ -265,5 +267,11 @@ public sealed class AutoOfferEngine(
     }
 
     private void Emit(AutoOfferOutcome outcome, string requestId, string? title, string? buyer, decimal? price, string message)
-        => Activity?.Invoke(new AutoOfferEvent(outcome, requestId, title, buyer, price, message, DateTimeOffset.Now));
+    {
+        // The in-app activity list is capped and dies with the process; the file survives,
+        // so a bad night can actually be read back instead of screenshotted.
+        ApiLog.Write($"[bot] {outcome} req={requestId} buyer={buyer ?? "-"} :: {message}");
+
+        Activity?.Invoke(new AutoOfferEvent(outcome, requestId, title, buyer, price, message, DateTimeOffset.Now));
+    }
 }
