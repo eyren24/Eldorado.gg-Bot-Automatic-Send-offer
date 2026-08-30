@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -58,15 +59,11 @@ public partial class ChatPage : UserControl
             await Browser.EnsureCoreWebView2Async(environment);
             WebViewEnvironment.KeepPopupsInline(Browser.CoreWebView2!);
 
-            _messenger = new ChatBrowserMessenger(Browser, Dispatcher)
-            {
-                ScriptOverride = shell.Host.Settings.Message.ChatScript
-            };
+            _messenger = new ChatBrowserMessenger(Browser, Dispatcher, () => shell.Host.Settings.Message);
             _messenger.Attach();
 
             // From now on the bot delivers through this browser; the clipboard stays as fallback.
             shell.Messages.Primary = _messenger;
-            shell.Host.Changed += SyncScript;
 
             // This browser also carries the Eldorado session the API client borrows.
             shell.RegisterSiteTokenReader(() => EldoradoSiteSession.ReadIdTokenAsync(Browser));
@@ -129,15 +126,6 @@ public partial class ChatPage : UserControl
         }
     }
 
-    /// <summary>Keeps the injection script in sync with what the settings page shows.</summary>
-    private void SyncScript()
-    {
-        if (_messenger is not null && DataContext is ShellViewModel shell)
-        {
-            _messenger.ScriptOverride = shell.Host.Settings.Message.ChatScript;
-        }
-    }
-
     private void Navigate(string url)
     {
         if (Browser.CoreWebView2 is null || string.IsNullOrWhiteSpace(url))
@@ -194,6 +182,49 @@ public partial class ChatPage : UserControl
         if (DataContext is ShellViewModel shell)
         {
             Navigate(shell.Host.Settings.Message.ChatUrl);
+        }
+    }
+
+    /// <summary>
+    /// Writes down what the page currently looks like to the chat scripts. The markup is
+    /// Eldorado's, so when delivery starts failing this report — not a screenshot — is what
+    /// says which step lost the conversation.
+    /// </summary>
+    private async void Diagnose_Click(object sender, RoutedEventArgs e)
+    {
+        if (_messenger is null)
+        {
+            MissingRuntimeDetail.Text = "Browser non ancora avviato.";
+            MissingRuntimeDetail.Visibility = Visibility.Visible;
+            return;
+        }
+
+        var button = (Button)sender;
+        button.IsEnabled = false;
+
+        try
+        {
+            var buyer = (DataContext as ShellViewModel)?.Message.History.FirstOrDefault()?.Buyer;
+            var report = await _messenger.DiagnoseAsync(buyer);
+
+            var path = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                "EldoradoApp", "chat-diagnostica.json");
+
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            await File.WriteAllTextAsync(path, report);
+
+            Clipboard.SetText(path);
+            AddressBox.Text = $"Report salvato in {path} (percorso copiato negli appunti)";
+        }
+        catch (Exception ex)
+        {
+            ApiLog.Write($"ChatPage diagnostics failed: {ex.Message}");
+            AddressBox.Text = $"Diagnostica non riuscita: {ex.Message}";
+        }
+        finally
+        {
+            button.IsEnabled = true;
         }
     }
 }

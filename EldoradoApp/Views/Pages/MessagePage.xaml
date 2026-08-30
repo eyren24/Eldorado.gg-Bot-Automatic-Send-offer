@@ -54,9 +54,23 @@
                                        Margin="10,0,0,0" VerticalAlignment="Center" FontSize="12.5" />
                         </StackPanel>
 
+                        <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                            <ToggleButton Style="{StaticResource MaterialDesignSwitchToggleButton}"
+                                          IsChecked="{Binding AttachBanner}" VerticalAlignment="Center" />
+                            <TextBlock Text="Allega il banner anche dentro la chat, dopo il testo"
+                                       Margin="10,0,0,0" VerticalAlignment="Center" FontSize="12.5" />
+                        </StackPanel>
+
+                        <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                            <ToggleButton Style="{StaticResource MaterialDesignSwitchToggleButton}"
+                                          IsChecked="{Binding StrictBuyerMatch}" VerticalAlignment="Center" />
+                            <TextBlock Text="Non scrivere se non riesco a confermare il destinatario"
+                                       Margin="10,0,0,0" VerticalAlignment="Center" FontSize="12.5" />
+                        </StackPanel>
+
                         <Border Background="#22FFC857" CornerRadius="8" Padding="12,9" Margin="0,14,0,0">
                             <TextBlock Style="{StaticResource Hint}" Foreground="#FFE0A0"
-                                       Text="La chat di Eldorado è TalkJS e non ha un endpoint nell'API venditore: l'invio automatico avviene guidando la chat dentro la scheda «Chat» di questa app, dove devi essere loggato sul sito. Se non riesce, il messaggio (con il banner) finisce negli appunti e basta un Ctrl+V." />
+                                       Text="La chat di Eldorado è TalkJS e non ha un endpoint nell'API venditore: l'invio automatico avviene guidando la chat dentro la scheda «Chat» di questa app, dove devi essere loggato sul sito. Il bot apre da solo la conversazione del compratore cercando il suo nome nella lista; se non la trova o non è sicuro del destinatario non scrive niente e mette messaggio e banner negli appunti da incollare con Ctrl+V." />
                         </Border>
                     </StackPanel>
                 </Border>
@@ -153,8 +167,14 @@
                                            FontWeight="Bold" Foreground="{StaticResource AppTextDim}" />
                             </Expander.Header>
                             <StackPanel Margin="0,12,0,0">
+                                <TextBox Style="{StaticResource MaterialDesignOutlinedTextBox}"
+                                         materialDesign:HintAssist.Hint="Link diretto alla chat (opzionale)"
+                                         Text="{Binding ConversationUrl, UpdateSourceTrigger=LostFocus}"
+                                         FontSize="12" Margin="0,0,0,10" />
+                                <TextBlock Style="{StaticResource Hint}" Margin="0,0,0,14"
+                                           Text="Se Eldorado espone un indirizzo che apre direttamente la conversazione, incollalo qui usando {buyer}, {buyerId} o {requestId}: il bot lo apre invece di cercare il nome nella lista." />
                                 <TextBlock Style="{StaticResource Hint}" Margin="0,0,0,10"
-                                           Text="Lascia vuoto per usare lo script predefinito. Lo snippet riceve il testo al posto di __TEXT__ e deve restituire { ok: true/false, reason: '…' }. Serve solo se Eldorado cambia il markup della chat." />
+                                           Text="Lo script sotto sostituisce solo il passaggio in cui viene scritto il testo (la conversazione la apre e la verifica comunque il bot). Lascia vuoto per quello predefinito: riceve il testo al posto di __TEXT__ e deve restituire { ok: true/false, reason: '…' }." />
                                 <TextBox Style="{StaticResource MaterialDesignOutlinedTextBox}"
                                          Text="{Binding ChatScript, UpdateSourceTrigger=LostFocus}"
                                          AcceptsReturn="True" TextWrapping="NoWrap" FontFamily="Consolas"

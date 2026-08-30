@@ -20,7 +20,7 @@
         <!-- Explanation -->
         <Border Grid.Row="0" Background="#22FFC857" CornerRadius="10" Padding="14,11" Margin="0,0,0,12">
             <TextBlock Style="{StaticResource Hint}" Foreground="#FFE0A0"
-                       Text="Questa è la chat di Eldorado dentro l'app: accedi qui una volta e resti loggato. È il canale che il bot usa per mandare in automatico il messaggio con il banner subito dopo ogni offerta. Tieni aperta la conversazione del compratore per l'invio automatico." />
+                       Text="Questa è la chat di Eldorado dentro l'app: accedi qui una volta e resti loggato. È il canale che il bot usa per mandare in automatico il messaggio con il banner subito dopo ogni offerta. La conversazione giusta la apre il bot da solo, cercando il nome del compratore nella lista: non serve che la lasci aperta tu." />
         </Border>
 
         <!-- Toolbar -->
@@ -57,6 +57,10 @@
                             Click="Go_Click" Content="Vai" />
                     <Button Style="{StaticResource MaterialDesignFlatButton}" Height="30" Padding="12,0"
                             Margin="6,0,0,0" Click="OpenChat_Click" Content="Apri chat Eldorado" />
+                    <Button Style="{StaticResource MaterialDesignFlatButton}" Height="30" Padding="12,0"
+                            Margin="6,0,0,0" Click="Diagnose_Click" Content="Diagnostica"
+                            Foreground="{StaticResource AppTextDim}"
+                            ToolTip="Salva un report di come il bot vede questa pagina (lista, casella messaggi, allegati)" />
                 </StackPanel>
             </Grid>
         </Border>

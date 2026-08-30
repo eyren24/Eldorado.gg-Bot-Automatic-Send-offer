@@ -40,6 +40,24 @@ public sealed class OfferMessageSettings
     /// <summary>Copy text (and banner) to the clipboard as well, as a manual fallback.</summary>
     public bool CopyToClipboard { get; set; } = true;
 
+    /// <summary>Also attach the banner inside the chat, not only on the clipboard.</summary>
+    public bool AttachBanner { get; set; } = true;
+
+    /// <summary>
+    /// Refuse to write when the open conversation cannot be confirmed as the buyer's.
+    /// Off by default: the bot already refuses when the buyer's row isn't there at all, or
+    /// when the open chat is provably somebody else's, and some skins give no further
+    /// signal to check against.
+    /// </summary>
+    public bool StrictBuyerMatch { get; set; }
+
+    /// <summary>
+    /// Optional direct link to a buyer conversation — <c>{buyer}</c>, <c>{buyerId}</c> and
+    /// <c>{requestId}</c> are substituted. When set, the bot opens it instead of hunting for
+    /// the buyer's row in the inbox list.
+    /// </summary>
+    public string ConversationUrl { get; set; } = "";
+
     /// <summary>Wait this long after the offer before sending, to let the chat thread appear.</summary>
     public int DelaySeconds { get; set; } = 2;
 

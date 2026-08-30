@@ -34,6 +34,9 @@ public sealed partial class MessageViewModel : ObservableObject
     [ObservableProperty] private string _template = "";
     [ObservableProperty] private string _bannerPath = "";
     [ObservableProperty] private bool _copyToClipboard;
+    [ObservableProperty] private bool _attachBanner;
+    [ObservableProperty] private bool _strictBuyerMatch;
+    [ObservableProperty] private string _conversationUrl = "";
     [ObservableProperty] private int _delaySeconds;
     [ObservableProperty] private string _chatUrl = "";
     [ObservableProperty] private int _maxAttempts;
@@ -65,6 +68,9 @@ public sealed partial class MessageViewModel : ObservableObject
             Template = Config.Template;
             BannerPath = Config.BannerPath;
             CopyToClipboard = Config.CopyToClipboard;
+            AttachBanner = Config.AttachBanner;
+            StrictBuyerMatch = Config.StrictBuyerMatch;
+            ConversationUrl = Config.ConversationUrl;
             DelaySeconds = Config.DelaySeconds;
             ChatUrl = Config.ChatUrl;
             MaxAttempts = Config.MaxAttempts;
@@ -86,6 +92,9 @@ public sealed partial class MessageViewModel : ObservableObject
         Config.Template = Template ?? "";
         Config.BannerPath = BannerPath ?? "";
         Config.CopyToClipboard = CopyToClipboard;
+        Config.AttachBanner = AttachBanner;
+        Config.StrictBuyerMatch = StrictBuyerMatch;
+        Config.ConversationUrl = (ConversationUrl ?? "").Trim();
         Config.DelaySeconds = Math.Max(0, DelaySeconds);
         Config.ChatUrl = string.IsNullOrWhiteSpace(ChatUrl) ? OfferMessageSettings.DefaultChatUrl : ChatUrl.Trim();
         Config.MaxAttempts = Math.Clamp(MaxAttempts, 1, 10);
@@ -97,6 +106,9 @@ public sealed partial class MessageViewModel : ObservableObject
     partial void OnTemplateChanged(string value) => ApplyAndPreview();
     partial void OnBannerPathChanged(string value) => ApplyAndPreview();
     partial void OnCopyToClipboardChanged(bool value) => ApplyAndPreview();
+    partial void OnAttachBannerChanged(bool value) => ApplyAndPreview();
+    partial void OnStrictBuyerMatchChanged(bool value) => ApplyAndPreview();
+    partial void OnConversationUrlChanged(string value) => ApplyAndPreview();
     partial void OnDelaySecondsChanged(int value) => ApplyAndPreview();
     partial void OnChatUrlChanged(string value) => ApplyAndPreview();
     partial void OnMaxAttemptsChanged(int value) => ApplyAndPreview();
