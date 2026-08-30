@@ -126,7 +126,7 @@ public sealed class OfferMessageDispatcher(
                 last = OfferMessageResult.Failed($"tentativo {attempt}: {ex.Message}");
             }
 
-            if (last.Outcome == MessageOutcome.Sent)
+            if (last.Outcome == MessageOutcome.Sent || last.Permanent)
             {
                 return last;
             }

@@ -329,22 +329,63 @@ public static class ChatScripts
     /// to click in the inbox — that button is what creates it.
     /// </summary>
     public const string ClickChat = """
-        (function () {
+        (function (name) {
           try {
-            var wanted = /chatta|chat|messagg|message|contatta|contact|scrivi/i;
+            var wanted = /chatta|chat|messagg|message|contatta|scrivi/i;
+
+            // The site's own support widget and the footer links read the same to a text
+            // match, and pressing one navigates off the request entirely. Excluded outright.
+            // "Contattaci" is the footer, not the buyer: the difference between writing to
+            // them and writing to Eldorado is one pronoun, so it is spelled out here.
+            var banned = /contattaci|contact ?us|support|supporto|assistenz|help|aiuto|faq|about|chi siamo|termini|terms|privacy|cookie|24\/7/i;
+
             var nodes = Array.prototype.slice.call(
               document.querySelectorAll('button,a,[role="button"],[type="button"]'));
+            var best = null, bestLabel = '', bestScore = -1;
+
             for (var i = 0; i < nodes.length; i++) {
               var e = nodes[i];
               if (!__el.visible(e) || e.disabled) { continue; }
-              var label = __el.norm(e.textContent) + ' ' + __el.attr(e, 'aria-label') + ' ' +
-                          __el.attr(e, 'title') + ' ' + __el.attr(e, 'data-testid');
-              // A whole card can match too: only short labels are really the button.
-              if (__el.norm(label).length > 60 || !wanted.test(label)) { continue; }
-              __el.click(e);
-              return { ok: true, reason: 'premuto "' + __el.norm(label).slice(0, 40) + '"' };
+
+              // The button that opens the buyer's chat belongs to the request itself. What
+              // sits in the site chrome is the support widget and the footer links, and
+              // pressing one of those navigates off the page entirely.
+              if (e.closest && e.closest('footer,header,nav')) { continue; }
+              var label = __el.norm(__el.norm(e.textContent) + ' ' + __el.attr(e, 'aria-label') + ' ' +
+                                    __el.attr(e, 'title') + ' ' + __el.attr(e, 'data-testid'));
+              // A whole card matches too: only short labels are really the button.
+              if (!label || label.length > 60) { continue; }
+              if (banned.test(label) || !wanted.test(label)) { continue; }
+
+              var score = 0;
+              if (name && __el.low(label).indexOf(__el.low(name)) >= 0) { score += 100; }
+              if (/^(chatta|chat|messagg|scrivi)/i.test(label)) { score += 20; }
+              if (e.tagName === 'BUTTON') { score += 5; }
+              score += Math.max(0, 40 - label.length) / 10;
+
+              if (score > bestScore) { bestScore = score; best = e; bestLabel = label; }
             }
-            return { ok: false, reason: 'nessun pulsante per aprire la chat in questa pagina' };
+
+            if (!best) { return { ok: false, reason: 'nessun pulsante per aprire la chat in questa pagina' }; }
+            __el.click(best);
+            return { ok: true, reason: 'premuto "' + bestLabel.slice(0, 40) + '"' };
+          } catch (e) { return { ok: false, reason: String(e) }; }
+        })(__BUYER__)
+        """;
+
+    /// <summary>Puts the caret in the composer, so a real paste lands there and nowhere else.</summary>
+    public const string FocusComposer = """
+        (function () {
+          try {
+            var box = __el.composer();
+            if (!box) { return { ok: false, reason: 'casella messaggi non trovata' }; }
+            box.focus();
+            if (box.isContentEditable) {
+              var sel = window.getSelection(), range = document.createRange();
+              range.selectNodeContents(box); range.collapse(false);
+              sel.removeAllRanges(); sel.addRange(range);
+            }
+            return { ok: document.activeElement === box, reason: box.tagName.toLowerCase() };
           } catch (e) { return { ok: false, reason: String(e) }; }
         })()
         """;
@@ -360,9 +401,19 @@ public static class ChatScripts
             var box = __el.composer();
             if (!box) { return { ok: false, reason: 'casella messaggi non trovata' }; }
             var panel = __el.panel(box);
+
+            // The composer bar shows a preview of what is attached but not yet sent, and
+            // counting that would call a file "delivered" while it is still sitting there.
+            var bar = box.parentElement || box;
+            var found = panel.querySelectorAll('img,picture,canvas,video,[style*="background-image"]');
+            var images = 0;
+            for (var i = 0; i < found.length; i++) {
+              if (!bar.contains(found[i])) { images++; }
+            }
+
             return {
               ok: true,
-              images: panel.querySelectorAll('img,picture,canvas,video,[style*="background-image"]').length,
+              images: images,
               links: panel.querySelectorAll('a[href],[download]').length,
               length: __el.norm(panel.textContent).length
             };

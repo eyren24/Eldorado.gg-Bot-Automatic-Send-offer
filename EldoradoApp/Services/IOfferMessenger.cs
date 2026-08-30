@@ -26,11 +26,19 @@ public enum MessageOutcome
     Disabled
 }
 
-public sealed record OfferMessageResult(MessageOutcome Outcome, string Detail)
+/// <param name="Permanent">
+/// True when retrying cannot possibly help — the request was deleted, the buyer is gone.
+/// Without it every such message costs three attempts with their waits, and the bot loop,
+/// which waits for the message before moving on, stalls for a minute per dead request.
+/// </param>
+public sealed record OfferMessageResult(MessageOutcome Outcome, string Detail, bool Permanent = false)
 {
     public static OfferMessageResult Sent(string detail) => new(MessageOutcome.Sent, detail);
     public static OfferMessageResult Staged(string detail) => new(MessageOutcome.Staged, detail);
     public static OfferMessageResult Failed(string detail) => new(MessageOutcome.Failed, detail);
+
+    /// <summary>A failure there is no point retrying.</summary>
+    public static OfferMessageResult Gone(string detail) => new(MessageOutcome.Failed, detail, Permanent: true);
 }
 
 /// <summary>

@@ -1,5 +1,8 @@
+using System.Collections.Specialized;
 using System.IO;
 using System.Text.Json;
+using System.Windows;
+using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using EldoradoApp.Models;
 using Microsoft.Web.WebView2.Core;
@@ -33,6 +36,9 @@ public sealed class ChatBrowserMessenger(
 
     /// <summary>Time the chat gets to accept a send gesture before it is checked.</summary>
     private const int SendMs = 700;
+
+    /// <summary>How long a single injected step may take before it is given up on.</summary>
+    private const int ScriptTimeoutMs = 10_000;
 
     private readonly List<CoreWebView2Frame> _frames = [];
     private readonly SemaphoreSlim _gate = new(1, 1);
@@ -101,7 +107,18 @@ public sealed class ChatBrowserMessenger(
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            return await DeliverAsync(message, buyer, config(), cancellationToken).ConfigureAwait(false);
+            var settings = config();
+            var result = await DeliverAsync(message, buyer, settings, cancellationToken).ConfigureAwait(false);
+
+            // A failed delivery can leave the browser parked on whatever the site redirected
+            // to. Put it back on the inbox so the Chat tab stays usable and the next message
+            // does not start from a stranded page.
+            if (result.Outcome != MessageOutcome.Sent)
+            {
+                await NavigateAsync(settings.ChatUrl, cancellationToken).ConfigureAwait(false);
+            }
+
+            return result;
         }
         catch (OperationCanceledException)
         {
@@ -152,7 +169,12 @@ public sealed class ChatBrowserMessenger(
         var link = DeepLink(settings, message);
         if (link is not null)
         {
-            await NavigateAsync(link, ct).ConfigureAwait(false);
+            var landed = await NavigateAsync(link, ct).ConfigureAwait(false);
+            if (!StillOnRequest(landed, link))
+            {
+                return (null, OfferMessageResult.Gone(
+                    $"la richiesta non esiste piu': la pagina e' finita su {Shorten(landed)}"));
+            }
 
             var opened = await ProbeAsync(buyer, ct).ConfigureAwait(false);
             if (opened.Any(p => p.HasComposer))
@@ -161,12 +183,12 @@ public sealed class ChatBrowserMessenger(
             }
             else
             {
-                var pressed = await RunEverywhereAsync(ChatScripts.Compose(ChatScripts.ClickChat), ct)
+                var pressed = await RunEverywhereAsync(ChatScripts.Compose(ChatScripts.ClickChat, buyer: buyer), ct)
                     .ConfigureAwait(false);
                 if (pressed is null)
                 {
                     return (null, OfferMessageResult.Failed(
-                        $"su {link} non c'e' ne' la chat ne' un pulsante per aprirla"));
+                        $"su {Shorten(link)} non c'e' ne' la chat ne' un pulsante per aprirla"));
                 }
 
                 notes.Add($"chat aperta dalla richiesta ({Reason(pressed)})");
@@ -338,6 +360,19 @@ public sealed class ChatBrowserMessenger(
 
         var before = await EvalAsync(chat, ChatScripts.Compose(ChatScripts.PanelState), ct).ConfigureAwait(false);
 
+        // A genuine paste first. A chat that ignores synthesised events still honours this
+        // one, because the browser itself reads the system clipboard and builds the event.
+        if (await PasteBannerAsync(chat, path, ct).ConfigureAwait(false))
+        {
+            await Task.Delay(1200, ct).ConfigureAwait(false);
+            await SendAttachmentAsync(chat, ct).ConfigureAwait(false);
+
+            if (await BannerLandedAsync(chat, before, ct).ConfigureAwait(false))
+            {
+                return "banner allegato (incollato dagli appunti)";
+            }
+        }
+
         var attached = await EvalAsync(chat, ChatScripts.Compose(ChatScripts.Attach, imageJson: image), ct)
             .ConfigureAwait(false);
         if (attached is null || !Flag(attached.Value, "ok"))
@@ -347,13 +382,93 @@ public sealed class ChatBrowserMessenger(
 
         // The upload needs a moment before the chat will accept the send gesture.
         await Task.Delay(1500, ct).ConfigureAwait(false);
-        await EvalAsync(chat, ChatScripts.Compose(ChatScripts.Submit), ct).ConfigureAwait(false);
-        await Task.Delay(SendMs, ct).ConfigureAwait(false);
-        await EvalAsync(chat, ChatScripts.Compose(ChatScripts.ClickSend), ct).ConfigureAwait(false);
+        await SendAttachmentAsync(chat, ct).ConfigureAwait(false);
 
         return await BannerLandedAsync(chat, before, ct).ConfigureAwait(false)
             ? $"banner allegato ({Reason(attached)})"
-            : $"banner NON allegato: la chat non l'ha accettato ({Reason(attached)}, ma in conversazione non e' comparso niente)";
+            : $"banner NON allegato: la chat non l'ha accettato (provati appunti e {Reason(attached)})";
+    }
+
+    private async Task SendAttachmentAsync(Target chat, CancellationToken ct)
+    {
+        await EvalAsync(chat, ChatScripts.Compose(ChatScripts.Submit), ct).ConfigureAwait(false);
+        await Task.Delay(SendMs, ct).ConfigureAwait(false);
+        await EvalAsync(chat, ChatScripts.Compose(ChatScripts.ClickSend), ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Stages the banner on the Windows clipboard and has the browser perform a real paste
+    /// into the composer, through the DevTools protocol's editing command. Unlike the
+    /// synthesised paste this one is the browser's own, so a chat that checks the event was
+    /// trusted still takes it. It needs no window focus, so it never steals the keyboard.
+    /// </summary>
+    private async Task<bool> PasteBannerAsync(Target chat, string path, CancellationToken ct)
+    {
+        // The paste lands wherever the caret is: put it in the composer first.
+        var focused = await EvalAsync(chat, ChatScripts.Compose(ChatScripts.FocusComposer), ct)
+            .ConfigureAwait(false);
+        if (focused is null || !Flag(focused.Value, "ok"))
+        {
+            return false;
+        }
+
+        if (!dispatcher.Invoke(() => StageOnClipboard(path)))
+        {
+            return false;
+        }
+
+        try
+        {
+            await dispatcher.InvokeAsync(() => browser.CoreWebView2!
+                    .CallDevToolsProtocolMethodAsync("Input.dispatchKeyEvent", PasteKeyEvent))
+                .Task.Unwrap().ConfigureAwait(false);
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            ApiLog.Write($"[chat] incolla reale non riuscito: {ex.Message}");
+            return false;
+        }
+    }
+
+    /// <summary>Ctrl+V carrying the editing command, which is what actually pastes.</summary>
+    private const string PasteKeyEvent =
+        """{"type":"keyDown","windowsVirtualKeyCode":86,"nativeVirtualKeyCode":86,"key":"v","code":"KeyV","modifiers":2,"commands":["paste"]}""";
+
+    /// <summary>
+    /// Puts the image on the clipboard both as a bitmap and as a file, because chats read
+    /// one or the other. Runs on the UI thread: the clipboard is single-threaded apartment.
+    /// </summary>
+    private static bool StageOnClipboard(string path)
+    {
+        for (var attempt = 0; attempt < 3; attempt++)
+        {
+            try
+            {
+                var bitmap = new BitmapImage();
+                bitmap.BeginInit();
+                bitmap.CacheOption = BitmapCacheOption.OnLoad;   // release the file handle
+                bitmap.UriSource = new Uri(path, UriKind.Absolute);
+                bitmap.EndInit();
+                bitmap.Freeze();
+
+                var data = new DataObject();
+                data.SetImage(bitmap);
+                data.SetFileDropList(new StringCollection { path });
+
+                Clipboard.SetDataObject(data, copy: true);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                // Another process can hold the clipboard open for a moment.
+                ApiLog.Write($"[chat] appunti occupati ({attempt + 1}/3): {ex.Message}");
+                Thread.Sleep(150);
+            }
+        }
+
+        return false;
     }
 
     /// <summary>Waits for the image to show up in the conversation; false when it never does.</summary>
@@ -515,21 +630,59 @@ public sealed class ChatBrowserMessenger(
         }
     }
 
-    private async Task NavigateAsync(string url, CancellationToken ct)
+    /// <summary>Navigates and reports where the browser actually ended up after redirects.</summary>
+    private async Task<string> NavigateAsync(string url, CancellationToken ct)
     {
+        var landed = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+
         dispatcher.Invoke(() =>
         {
+            var core = browser.CoreWebView2!;
+
+            void OnCompleted(object? sender, CoreWebView2NavigationCompletedEventArgs e)
+            {
+                core.NavigationCompleted -= OnCompleted;
+                landed.TrySetResult(e.IsSuccess);
+            }
+
+            core.NavigationCompleted += OnCompleted;
+
             try
             {
-                browser.CoreWebView2!.Navigate(Absolute(url));
+                core.Navigate(Absolute(url));
             }
             catch (Exception ex)
             {
+                core.NavigationCompleted -= OnCompleted;
                 ApiLog.Write($"[chat] navigazione a {url} fallita: {ex.Message}");
+                landed.TrySetResult(false);
             }
         });
 
+        await Task.WhenAny(landed.Task, Task.Delay(15_000, ct)).ConfigureAwait(false);
+
+        // The site routes on its own after the document loads; read the address once settled.
         await Task.Delay(1500, ct).ConfigureAwait(false);
+        return dispatcher.Invoke(() => browser.Source?.ToString() ?? "");
+    }
+
+    /// <summary>
+    /// Did the address survive the navigation? A deleted request does not 404 — Eldorado
+    /// redirects to a marketing page, which carries neither the chat nor its button, and
+    /// whose footer does carry things that look like one.
+    /// </summary>
+    private static bool StillOnRequest(string landed, string requested)
+    {
+        try
+        {
+            var id = new Uri(Absolute(requested)).Segments.LastOrDefault()?.Trim('/');
+            return string.IsNullOrEmpty(id) ||
+                   landed.Contains(id, StringComparison.OrdinalIgnoreCase);
+        }
+        catch (UriFormatException)
+        {
+            return true;    // a template we cannot read: do not block on it
+        }
     }
 
     private static string Absolute(string url) =>
@@ -578,7 +731,17 @@ public sealed class ChatBrowserMessenger(
         string raw;
         try
         {
-            raw = await target.Run(script).ConfigureAwait(false);
+            // A page that stops answering — a modal dialog, a wedged renderer — would leave
+            // this await pending forever, and with it the whole bot loop, which waits for
+            // the message before moving to the next request. Nothing here is worth a hang.
+            var run = target.Run(script);
+            if (await Task.WhenAny(run, Task.Delay(ScriptTimeoutMs, ct)).ConfigureAwait(false) != run)
+            {
+                ApiLog.Write($"[chat] {target.Label}: nessuna risposta entro {ScriptTimeoutMs} ms");
+                return null;
+            }
+
+            raw = await run.ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -615,6 +778,9 @@ public sealed class ChatBrowserMessenger(
         element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String
             ? value.GetString() ?? ""
             : "";
+
+    /// <summary>Addresses go in log lines and in the UI: keep them readable.</summary>
+    private static string Shorten(string url) => url.Length <= 70 ? url : url[..67] + "…";
 
     private static string Reason(JsonElement? element) =>
         element is { } value ? Text(value, "reason") : "nessuna risposta dalla pagina";
