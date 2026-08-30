@@ -200,18 +200,50 @@ jobs:
 
           remote_path="${REMOTE_DIR%/}/${FILE_NAME}"
 
+          # Un secret incollato dall'output di 'mega-session' si porta dietro
+          # l'etichetta o un a capo, e MEGA lo rifiuterebbe come sessione non
+          # valida: si tiene solo il token.
+          session="${MEGA_SESSION:-}"
+          session="${session##*: }"
+          session="$(printf '%s' "$session" | tr -d '[:space:]')"
+
           # Il logout finale deve partire anche se qualcosa fallisce a metà,
-          # altrimenti la sessione resta aperta lato MEGA.
-          cleanup() { mega-logout >/dev/null 2>&1 || true; }
+          # altrimenti la sessione resta aperta lato MEGA. Ma 'mega-logout' senza
+          # flag la sessione la CHIUDE per davvero: con il login da sessione
+          # salvata bruciava il secret al primo giro, e dal secondo in poi il
+          # login falliva con "Bad session ID". Con --keep-session la sessione
+          # resta riutilizzabile; solo il login con email e password, che una
+          # sessione la crea sul momento, va chiuso davvero.
+          keep_session=1
+          cleanup() {
+            if [ "$keep_session" = 1 ]; then
+              mega-logout --keep-session >/dev/null 2>&1 || true
+            else
+              mega-logout >/dev/null 2>&1 || true
+            fi
+          }
           trap cleanup EXIT
 
-          if [ -n "${MEGA_SESSION:-}" ]; then
-            echo "Login con sessione salvata."
-            mega-login "$MEGA_SESSION" >/dev/null
-          elif [ -n "${MEGA_EMAIL:-}" ] && [ -n "${MEGA_PASSWORD:-}" ]; then
+          login_con_password() {
+            [ -n "${MEGA_EMAIL:-}" ] && [ -n "${MEGA_PASSWORD:-}" ] || return 1
+            keep_session=0
             echo "Login con email e password."
             mega-login "$MEGA_EMAIL" "$MEGA_PASSWORD" >/dev/null
-          else
+          }
+
+          if [ -n "$session" ]; then
+            echo "Login con sessione salvata."
+            if ! mega-login "$session" >/dev/null 2>login.err; then
+              # Il motivo vero (scaduta, revocata, rete), senza ristampare il
+              # token se un domani MEGA lo ripetesse dentro l'errore.
+              grep -vF "$session" login.err | sed 's/^/  /' || true
+              echo "La sessione salvata non e' piu' valida."
+              if ! login_con_password; then
+                echo "::error::MEGA_SESSION non e' piu' valido. Rigeneralo: 'mega-login EMAIL PASSWORD' (con --auth-code=XXXXXX se hai la 2FA), 'mega-session' per leggerlo, 'mega-logout --keep-session' per non chiuderlo. Oppure imposta i secret MEGA_EMAIL e MEGA_PASSWORD, che non scadono."
+                exit 1
+              fi
+            fi
+          elif ! login_con_password; then
             echo "::error::Servono i secret MEGA_SESSION oppure MEGA_EMAIL + MEGA_PASSWORD."
             exit 1
           fi
