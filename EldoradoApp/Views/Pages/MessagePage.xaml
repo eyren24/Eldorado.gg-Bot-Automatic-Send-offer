@@ -168,11 +168,11 @@
                             </Expander.Header>
                             <StackPanel Margin="0,12,0,0">
                                 <TextBox Style="{StaticResource MaterialDesignOutlinedTextBox}"
-                                         materialDesign:HintAssist.Hint="Link diretto alla chat (opzionale)"
+                                         materialDesign:HintAssist.Hint="Link alla pagina della richiesta (consigliato)"
                                          Text="{Binding ConversationUrl, UpdateSourceTrigger=LostFocus}"
                                          FontSize="12" Margin="0,0,0,10" />
                                 <TextBlock Style="{StaticResource Hint}" Margin="0,0,0,14"
-                                           Text="Se Eldorado espone un indirizzo che apre direttamente la conversazione, incollalo qui usando {buyer}, {buyerId} o {requestId}: il bot lo apre invece di cercare il nome nella lista." />
+                                           Text="Indirizzo della pagina della richiesta su Eldorado, quella con il pulsante «Chatta con il cliente»: metti {requestId} (oppure {buyer} o {buyerId}) al posto della parte che cambia. Il bot ci va, preme il pulsante e scrive lì. Senza questo indirizzo può solo cercare il nome nella lista dei messaggi, e una conversazione che il compratore non ha ancora aperto lì non c'è." />
                                 <TextBlock Style="{StaticResource Hint}" Margin="0,0,0,10"
                                            Text="Lo script sotto sostituisce solo il passaggio in cui viene scritto il testo (la conversazione la apre e la verifica comunque il bot). Lascia vuoto per quello predefinito: riceve il testo al posto di __TEXT__ e deve restituire { ok: true/false, reason: '…' }." />
                                 <TextBox Style="{StaticResource MaterialDesignOutlinedTextBox}"

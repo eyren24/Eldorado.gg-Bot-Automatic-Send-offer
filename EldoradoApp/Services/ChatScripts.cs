@@ -323,6 +323,53 @@ public static class ChatScripts
         })(__BUYER__)
         """;
 
+    /// <summary>
+    /// Presses the site's own "chat with the buyer" button. This is the route that works
+    /// right after an offer: the conversation often does not exist yet, so there is no row
+    /// to click in the inbox — that button is what creates it.
+    /// </summary>
+    public const string ClickChat = """
+        (function () {
+          try {
+            var wanted = /chatta|chat|messagg|message|contatta|contact|scrivi/i;
+            var nodes = Array.prototype.slice.call(
+              document.querySelectorAll('button,a,[role="button"],[type="button"]'));
+            for (var i = 0; i < nodes.length; i++) {
+              var e = nodes[i];
+              if (!__el.visible(e) || e.disabled) { continue; }
+              var label = __el.norm(e.textContent) + ' ' + __el.attr(e, 'aria-label') + ' ' +
+                          __el.attr(e, 'title') + ' ' + __el.attr(e, 'data-testid');
+              // A whole card can match too: only short labels are really the button.
+              if (__el.norm(label).length > 60 || !wanted.test(label)) { continue; }
+              __el.click(e);
+              return { ok: true, reason: 'premuto "' + __el.norm(label).slice(0, 40) + '"' };
+            }
+            return { ok: false, reason: 'nessun pulsante per aprire la chat in questa pagina' };
+          } catch (e) { return { ok: false, reason: String(e) }; }
+        })()
+        """;
+
+    /// <summary>
+    /// What the open conversation currently holds. Compared before and after an upload it
+    /// is the only honest answer to "did the banner actually go through?" — the events the
+    /// attach step fires say the page accepted them, not that the file was sent.
+    /// </summary>
+    public const string PanelState = """
+        (function () {
+          try {
+            var box = __el.composer();
+            if (!box) { return { ok: false, reason: 'casella messaggi non trovata' }; }
+            var panel = __el.panel(box);
+            return {
+              ok: true,
+              images: panel.querySelectorAll('img,picture,canvas,video,[style*="background-image"]').length,
+              links: panel.querySelectorAll('a[href],[download]').length,
+              length: __el.norm(panel.textContent).length
+            };
+          } catch (e) { return { ok: false, reason: String(e) }; }
+        })()
+        """;
+
     /// <summary>Types the buyer's name into the inbox filter (the list is paginated).</summary>
     public const string Filter = """
         (function (name) {

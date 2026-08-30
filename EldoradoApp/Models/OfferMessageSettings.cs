@@ -52,11 +52,19 @@ public sealed class OfferMessageSettings
     public bool StrictBuyerMatch { get; set; }
 
     /// <summary>
-    /// Optional direct link to a buyer conversation — <c>{buyer}</c>, <c>{buyerId}</c> and
-    /// <c>{requestId}</c> are substituted. When set, the bot opens it instead of hunting for
-    /// the buyer's row in the inbox list.
+    /// Page the bot opens to reach the buyer: <c>{requestId}</c>, <c>{buyer}</c> and
+    /// <c>{buyerId}</c> are substituted.
     /// </summary>
-    public string ConversationUrl { get; set; } = "";
+    /// <remarks>
+    /// This is the route that actually works right after an offer. The conversation does
+    /// not exist yet at that moment — it is the request page's own "chat with the buyer"
+    /// button that creates it — so there is nothing to find in the message list, and
+    /// hunting for the buyer's name there just spins until somebody opens the chat by hand.
+    /// </remarks>
+    public string ConversationUrl { get; set; } = DefaultConversationUrl;
+
+    /// <summary>The page of a single boosting request, which carries the chat button.</summary>
+    public const string DefaultConversationUrl = "https://www.eldorado.gg/boosting-request/{requestId}";
 
     /// <summary>Wait this long after the offer before sending, to let the chat thread appear.</summary>
     public int DelaySeconds { get; set; } = 2;

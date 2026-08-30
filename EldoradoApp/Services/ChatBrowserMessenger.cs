@@ -146,12 +146,32 @@ public sealed class ChatBrowserMessenger(
         OutgoingOfferMessage message, string buyer, OfferMessageSettings settings, List<string> notes,
         CancellationToken ct)
     {
-        // A direct conversation link, when the seller has one, beats clicking around.
+        // The page of the request the offer answers, when the seller configured one: the
+        // conversation usually does not exist yet at this point — there is no row to click
+        // in the inbox — and the site's own "chat with the buyer" button is what creates it.
         var link = DeepLink(settings, message);
         if (link is not null)
         {
             await NavigateAsync(link, ct).ConfigureAwait(false);
-            notes.Add("link diretto");
+
+            var opened = await ProbeAsync(buyer, ct).ConfigureAwait(false);
+            if (opened.Any(p => p.HasComposer))
+            {
+                notes.Add("link diretto");
+            }
+            else
+            {
+                var pressed = await RunEverywhereAsync(ChatScripts.Compose(ChatScripts.ClickChat), ct)
+                    .ConfigureAwait(false);
+                if (pressed is null)
+                {
+                    return (null, OfferMessageResult.Failed(
+                        $"su {link} non c'e' ne' la chat ne' un pulsante per aprirla"));
+                }
+
+                notes.Add($"chat aperta dalla richiesta ({Reason(pressed)})");
+                await Task.Delay(SettleMs, ct).ConfigureAwait(false);
+            }
         }
         else if (!IsInbox(dispatcher.Invoke(() => browser.Source?.ToString() ?? ""), settings.ChatUrl))
         {
@@ -302,20 +322,27 @@ public sealed class ChatBrowserMessenger(
         return pending is null ? 0 : Number(pending.Value, "pending");
     }
 
-    /// <summary>Puts the banner in the composer and sends it as its own message.</summary>
+    /// <summary>
+    /// Puts the banner in the composer and sends it as its own message, then checks that it
+    /// really landed. The attach step can only report that the page <i>accepted</i> the
+    /// events it was given, which is not the same as the file being sent — so the answer
+    /// comes from the conversation itself: an image that was not there before.
+    /// </summary>
     private async Task<string> AttachBannerAsync(Target chat, string path, CancellationToken ct)
     {
         var image = ReadImage(path, out var problem);
         if (image is null)
         {
-            return $"banner non allegato ({problem})";
+            return $"banner NON allegato ({problem})";
         }
+
+        var before = await EvalAsync(chat, ChatScripts.Compose(ChatScripts.PanelState), ct).ConfigureAwait(false);
 
         var attached = await EvalAsync(chat, ChatScripts.Compose(ChatScripts.Attach, imageJson: image), ct)
             .ConfigureAwait(false);
         if (attached is null || !Flag(attached.Value, "ok"))
         {
-            return $"banner non allegato ({Reason(attached)})";
+            return $"banner NON allegato ({Reason(attached)})";
         }
 
         // The upload needs a moment before the chat will accept the send gesture.
@@ -324,7 +351,40 @@ public sealed class ChatBrowserMessenger(
         await Task.Delay(SendMs, ct).ConfigureAwait(false);
         await EvalAsync(chat, ChatScripts.Compose(ChatScripts.ClickSend), ct).ConfigureAwait(false);
 
-        return $"banner: {Reason(attached)}";
+        return await BannerLandedAsync(chat, before, ct).ConfigureAwait(false)
+            ? $"banner allegato ({Reason(attached)})"
+            : $"banner NON allegato: la chat non l'ha accettato ({Reason(attached)}, ma in conversazione non e' comparso niente)";
+    }
+
+    /// <summary>Waits for the image to show up in the conversation; false when it never does.</summary>
+    private async Task<bool> BannerLandedAsync(Target chat, JsonElement? before, CancellationToken ct)
+    {
+        if (before is null || !Flag(before.Value, "ok"))
+        {
+            return false;   // no baseline to compare against: never claim success
+        }
+
+        var images = Number(before.Value, "images");
+        var links = Number(before.Value, "links");
+
+        // Uploads are not instant: give the conversation a few seconds to show the file.
+        for (var attempt = 0; attempt < 8; attempt++)
+        {
+            await Task.Delay(1200, ct).ConfigureAwait(false);
+
+            var now = await EvalAsync(chat, ChatScripts.Compose(ChatScripts.PanelState), ct).ConfigureAwait(false);
+            if (now is null || !Flag(now.Value, "ok"))
+            {
+                continue;
+            }
+
+            if (Number(now.Value, "images") > images || Number(now.Value, "links") > links)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /// <summary>
@@ -399,6 +459,21 @@ public sealed class ChatBrowserMessenger(
 
         return targets;
     });
+
+    /// <summary>Runs one step in every frame and returns the first that reports success.</summary>
+    private async Task<JsonElement?> RunEverywhereAsync(string script, CancellationToken ct)
+    {
+        foreach (var target in BuildTargets())
+        {
+            var result = await EvalAsync(target, script, ct).ConfigureAwait(false);
+            if (result is { } value && Flag(value, "ok"))
+            {
+                return value;
+            }
+        }
+
+        return null;
+    }
 
     private async Task<List<Probed>> ProbeAsync(string buyer, CancellationToken ct)
     {

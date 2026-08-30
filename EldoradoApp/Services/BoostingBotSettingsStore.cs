@@ -51,10 +51,20 @@ public static class BoostingBotSettingsStore
         }
 
         // The chat used to live on /chat; the seller inbox is the real destination.
-        if (settings.Message is { } message &&
-            message.ChatUrl.Contains("eldorado.gg/chat", StringComparison.OrdinalIgnoreCase))
+        if (settings.Message is { } message)
         {
-            message.ChatUrl = OfferMessageSettings.DefaultChatUrl;
+            if (message.ChatUrl.Contains("eldorado.gg/chat", StringComparison.OrdinalIgnoreCase))
+            {
+                message.ChatUrl = OfferMessageSettings.DefaultChatUrl;
+            }
+
+            // Files written before the bot knew about the request page have this empty,
+            // which sends it back to hunting the message list for a conversation that the
+            // buyer has not opened yet. Point it at the page with the chat button.
+            if (string.IsNullOrWhiteSpace(message.ConversationUrl))
+            {
+                message.ConversationUrl = OfferMessageSettings.DefaultConversationUrl;
+            }
         }
 
         return settings;
