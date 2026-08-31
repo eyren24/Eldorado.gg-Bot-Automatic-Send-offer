@@ -4,8 +4,11 @@ using System.Text;
 using System.Windows;
 using System.Windows.Markup;
 using System.Windows.Threading;
+using EldoradoApp.Models;
 using EldoradoApp.Services;
+using EldoradoApp.Services.Licensing;
 using EldoradoApp.ViewModels;
+using EldoradoApp.Views;
 using Microsoft.Web.WebView2.Wpf;
 
 namespace EldoradoApp;
@@ -17,6 +20,9 @@ public partial class App : Application
 
     /// <summary>Live Seller API backend (auth + boosting requests + auto-offer bot).</summary>
     public EldoradoBackend Backend { get; } = new();
+
+    /// <summary>The licence gate. Nothing in the app runs until this says yes.</summary>
+    public LicenseService License { get; } = new();
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -39,19 +45,55 @@ public partial class App : Application
             WebViewEnvironment.Disable();
         }
 
+        // The licence gate runs before anything else, diagnostics included: there must be
+        // no command line that reaches app functionality without a key.
+        if (!ShowLicenseGate())
+        {
+            Shutdown();
+            return;
+        }
+
         if (e.Args.Any(a => string.Equals(a, "--check-google", StringComparison.OrdinalIgnoreCase)))
         {
             _ = RunGoogleCheckAsync();
             return;
         }
 
-        var shell = new ShellViewModel(Backend);
+        var shell = new ShellViewModel(Backend, License);
         var window = new MainWindow { DataContext = shell };
 
         // Restoring the session touches the network, so do it once the shell is on screen.
         window.Loaded += async (_, _) => await shell.InitializeAsync();
 
+        // Back to the normal lifetime now that the real window exists: the gate ran with
+        // explicit shutdown so closing it wouldn't take the whole app down with it.
+        MainWindow = window;
+        ShutdownMode = ShutdownMode.OnMainWindowClose;
+
         window.Show();
+    }
+
+    /// <summary>
+    /// Checks the stored key and, when it doesn't hold up, puts the activation window in
+    /// front of everything else. Returns false when the user closed it without activating.
+    /// </summary>
+    /// <remarks>
+    /// The check runs before the shell is even constructed, so an unlicensed copy never
+    /// reaches the backend, the settings or the bot loop.
+    /// </remarks>
+    private bool ShowLicenseGate()
+    {
+        if (License.Initialize() == LicenseState.Valid)
+        {
+            return true;
+        }
+
+        // Without this the gate closing would be "the last window closed" and would end
+        // the process before MainWindow is ever created.
+        ShutdownMode = ShutdownMode.OnExplicitShutdown;
+
+        var gate = new ActivationWindow { DataContext = new LicenseViewModel(License) };
+        return gate.ShowDialog() == true && License.IsValid;
     }
 
     /// <summary>

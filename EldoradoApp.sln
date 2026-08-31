@@ -2,6 +2,8 @@
 Microsoft Visual Studio Solution File, Format Version 12.00
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "EldoradoApp", "EldoradoApp\EldoradoApp.csproj", "{9DE47AA2-E4C8-4626-8835-28A40402D6EE}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "EldoradoKeygen", "tools\EldoradoKeygen\EldoradoKeygen.csproj", "{B9B22C3A-C83A-4EC7-9968-3BE4575F8692}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -12,5 +14,9 @@ Global
 		{9DE47AA2-E4C8-4626-8835-28A40402D6EE}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{9DE47AA2-E4C8-4626-8835-28A40402D6EE}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{9DE47AA2-E4C8-4626-8835-28A40402D6EE}.Release|Any CPU.Build.0 = Release|Any CPU
+		{B9B22C3A-C83A-4EC7-9968-3BE4575F8692}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B9B22C3A-C83A-4EC7-9968-3BE4575F8692}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B9B22C3A-C83A-4EC7-9968-3BE4575F8692}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B9B22C3A-C83A-4EC7-9968-3BE4575F8692}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal

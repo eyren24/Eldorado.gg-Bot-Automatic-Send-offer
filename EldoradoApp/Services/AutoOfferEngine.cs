@@ -1,4 +1,5 @@
 using EldoradoApp.Models;
+using EldoradoApp.Services.Licensing;
 
 namespace EldoradoApp.Services;
 
@@ -35,6 +36,11 @@ public sealed record AutoOfferEvent(
 /// Safety: nothing is submitted while <c>DryRun</c> is on. Requests whose rank range
 /// can't be parsed are skipped and logged with the raw title, so the parser can be
 /// calibrated against live data instead of guessing a price.
+/// <para>
+/// The licence is re-checked here, not only in the UI: this is the code that spends the
+/// seller's money, so it refuses to poll or to submit without a valid key even if the
+/// buttons that lead here were somehow bypassed.
+/// </para>
 /// </remarks>
 public sealed class AutoOfferEngine(
     IBoostingRequestClient requests,
@@ -56,6 +62,14 @@ public sealed class AutoOfferEngine(
     {
         while (!cancellationToken.IsCancellationRequested)
         {
+            // Checked every cycle, not once at the start: a loop left running for days
+            // must stop by itself the moment the licence runs out.
+            if (!LicenseGate.IsLicensed())
+            {
+                Emit(AutoOfferOutcome.Error, "-", null, null, null, LicenseGate.Refusal);
+                return;
+            }
+
             await RunOnceAsync(cancellationToken).ConfigureAwait(false);
 
             var seconds = Math.Max(5, settingsProvider().PollIntervalSeconds);
@@ -72,6 +86,12 @@ public sealed class AutoOfferEngine(
 
     public async Task RunOnceAsync(CancellationToken cancellationToken = default)
     {
+        if (!LicenseGate.IsLicensed())
+        {
+            Emit(AutoOfferOutcome.Error, "-", null, null, null, LicenseGate.Refusal);
+            return;
+        }
+
         var settings = settingsProvider().Normalized();
         await ProcessActiveRequestsAsync(settings, cancellationToken).ConfigureAwait(false);
         await DetectAcceptedAsync(settings, cancellationToken).ConfigureAwait(false);
@@ -180,6 +200,15 @@ public sealed class AutoOfferEngine(
             _offered.Add(request.Id);
             Emit(AutoOfferOutcome.DryRunWouldSubmit, request.Id, title, request.BuyerUsername, quote.Total,
                 $"[DRY-RUN] {summary}");
+            return;
+        }
+
+        // Last gate before money moves. A cycle can take minutes; the licence could have
+        // lapsed, or been revoked, since the cycle began.
+        if (!LicenseGate.IsLicensed())
+        {
+            Emit(AutoOfferOutcome.Error, request.Id, title, request.BuyerUsername, quote.Total,
+                LicenseGate.Refusal);
             return;
         }
 

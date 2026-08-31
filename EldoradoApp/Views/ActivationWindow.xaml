@@ -1,0 +1,197 @@
+<Window x:Class="EldoradoApp.Views.ActivationWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
+        xmlns:vm="clr-namespace:EldoradoApp.ViewModels"
+        mc:Ignorable="d"
+        d:DataContext="{d:DesignInstance vm:LicenseViewModel}"
+        TextElement.Foreground="{StaticResource AppText}"
+        Background="{StaticResource AppBackground}"
+        FontFamily="{materialDesign:MaterialDesignFont}"
+        TextOptions.TextFormattingMode="Ideal"
+        Title="Eldorado Bot · Attivazione" Height="800" Width="720"
+        MinHeight="640" MinWidth="620"
+        WindowStartupLocation="CenterScreen">
+
+    <DockPanel>
+
+        <!-- Brand strip -->
+        <Border DockPanel.Dock="Top" Background="{StaticResource AppRail}" Padding="26,20"
+                BorderBrush="{StaticResource AppBorder}" BorderThickness="0,0,0,1">
+            <StackPanel Orientation="Horizontal">
+                <Border Background="{StaticResource AppAccent}" CornerRadius="9" Width="40" Height="40">
+                    <materialDesign:PackIcon Kind="Robot" Width="24" Height="24" Foreground="White"
+                                             HorizontalAlignment="Center" VerticalAlignment="Center" />
+                </Border>
+                <StackPanel Margin="14,0,0,0" VerticalAlignment="Center">
+                    <TextBlock Text="ELDORADO BOT" FontWeight="Bold" FontSize="16" />
+                    <TextBlock Text="Valorant boosting · attivazione licenza" FontSize="11.5"
+                               Foreground="{StaticResource AppTextDim}" />
+                </StackPanel>
+            </StackPanel>
+        </Border>
+
+        <!-- Exit, pinned to the bottom so it never scrolls away -->
+        <Border DockPanel.Dock="Bottom" Background="{StaticResource AppRail}" Padding="26,12"
+                BorderBrush="{StaticResource AppBorder}" BorderThickness="0,1,0,0">
+            <DockPanel>
+                <Button DockPanel.Dock="Right" Style="{StaticResource MaterialDesignFlatButton}" Height="32"
+                        Padding="16,0" Content="Esci" Foreground="{StaticResource AppTextDim}"
+                        Click="Exit_Click" />
+                <TextBlock VerticalAlignment="Center" Style="{StaticResource Hint}"
+                           Text="{Binding CopyHint}" />
+            </DockPanel>
+        </Border>
+
+        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
+                      Padding="26,20">
+            <StackPanel>
+
+                <!-- ===== Verdict ===== -->
+                <Border Style="{StaticResource Card}">
+                    <StackPanel>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                            <!-- Kind and Foreground live in the style only: a local value would
+                                 outrank the trigger and freeze the icon on "locked". -->
+                            <materialDesign:PackIcon Width="22" Height="22" VerticalAlignment="Center">
+                                <materialDesign:PackIcon.Style>
+                                    <Style TargetType="materialDesign:PackIcon">
+                                        <Setter Property="Kind" Value="LockOutline" />
+                                        <Setter Property="Foreground" Value="{StaticResource AppAccent}" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsValid}" Value="True">
+                                                <Setter Property="Kind" Value="ShieldCheck" />
+                                                <Setter Property="Foreground" Value="{StaticResource AppMint}" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </materialDesign:PackIcon.Style>
+                            </materialDesign:PackIcon>
+                            <TextBlock Text="{Binding Headline}" Margin="10,0,0,0" FontSize="17" FontWeight="Bold"
+                                       VerticalAlignment="Center" />
+                        </StackPanel>
+
+                        <TextBlock Style="{StaticResource Hint}" FontSize="12.5" Text="{Binding Detail}" />
+                    </StackPanel>
+                </Border>
+
+                <!-- ===== Key ===== -->
+                <Border Style="{StaticResource Card}">
+                    <StackPanel>
+                        <TextBlock Text="LA TUA CHIAVE" Style="{StaticResource CardTitle}" />
+
+                        <TextBox x:Name="KeyBox"
+                                 Style="{StaticResource MaterialDesignOutlinedTextBox}"
+                                 materialDesign:HintAssist.Hint="Incolla qui la chiave (ELDO-...)"
+                                 Text="{Binding KeyInput, UpdateSourceTrigger=PropertyChanged}"
+                                 AcceptsReturn="True" TextWrapping="Wrap" MinHeight="96" MaxHeight="150"
+                                 VerticalScrollBarVisibility="Auto"
+                                 FontFamily="Consolas, Courier New" FontSize="12.5" />
+
+                        <WrapPanel Margin="0,12,0,0">
+                            <Button Height="40" Padding="24,0" Margin="0,0,10,0"
+                                    Style="{StaticResource MaterialDesignRaisedButton}"
+                                    Background="{StaticResource AppAccent}" BorderBrush="{StaticResource AppAccent}"
+                                    Foreground="White" IsDefault="True"
+                                    Command="{Binding ActivateCommand}">
+                                <StackPanel Orientation="Horizontal">
+                                    <materialDesign:PackIcon Kind="KeyVariant" VerticalAlignment="Center" />
+                                    <TextBlock Text="Attiva" Margin="9,0,0,0" VerticalAlignment="Center"
+                                               FontWeight="SemiBold" />
+                                </StackPanel>
+                            </Button>
+
+                            <Button Height="40" Padding="18,0" Style="{StaticResource MaterialDesignOutlinedButton}"
+                                    Command="{Binding PasteKeyCommand}">
+                                <StackPanel Orientation="Horizontal">
+                                    <materialDesign:PackIcon Kind="ContentPaste" VerticalAlignment="Center" />
+                                    <TextBlock Text="Incolla dagli appunti" Margin="9,0,0,0"
+                                               VerticalAlignment="Center" />
+                                </StackPanel>
+                            </Button>
+                        </WrapPanel>
+
+                        <Border Background="#33FF4655" CornerRadius="8" Padding="12,9" Margin="0,12,0,0"
+                                Visibility="{Binding HasError, Converter={StaticResource BoolToVis}}">
+                            <TextBlock Style="{StaticResource Hint}" Foreground="#FFCDD2"
+                                       Text="{Binding Detail}" />
+                        </Border>
+                    </StackPanel>
+                </Border>
+
+                <!-- ===== Machine ID ===== -->
+                <Border Style="{StaticResource Card}">
+                    <StackPanel>
+                        <TextBlock Text="ID DI QUESTO PC" Style="{StaticResource CardTitle}" />
+                        <TextBlock Style="{StaticResource Hint}" Margin="0,0,0,12"
+                                   Text="Ogni chiave viene generata su misura per un solo PC. Mandami questo codice su Discord: senza, non posso emetterla." />
+
+                        <Border Background="{StaticResource AppSurfaceAlt}" CornerRadius="8" Padding="14,11">
+                            <DockPanel>
+                                <Button DockPanel.Dock="Right" Style="{StaticResource MaterialDesignIconButton}"
+                                        Height="30" Width="30" ToolTip="Copia l'ID macchina"
+                                        Foreground="{StaticResource AppMint}"
+                                        Command="{Binding CopyMachineIdCommand}">
+                                    <materialDesign:PackIcon Kind="ContentCopy" Width="18" Height="18" />
+                                </Button>
+                                <TextBox Text="{Binding MachineId, Mode=OneWay}" IsReadOnly="True"
+                                         BorderThickness="0" Background="Transparent"
+                                         Foreground="{StaticResource AppText}" VerticalAlignment="Center"
+                                         FontFamily="Consolas, Courier New" FontSize="16" FontWeight="Bold" />
+                            </DockPanel>
+                        </Border>
+                    </StackPanel>
+                </Border>
+
+                <!-- ===== Where to buy ===== -->
+                <Border Style="{StaticResource Card}">
+                    <StackPanel>
+                        <TextBlock Text="COME OTTENERE O RINNOVARE LA CHIAVE" Style="{StaticResource CardTitle}" />
+                        <TextBlock Style="{StaticResource Hint}" Margin="0,0,0,12"
+                                   Text="Le chiavi si richiedono solo su Discord: scrivimi, mandami l'ID di questo PC qui sopra e ti mando la chiave. Ogni chiave dura 30 giorni; alla scadenza si rinnova con lo stesso procedimento." />
+
+                        <Border Background="{StaticResource AppSurfaceAlt}" CornerRadius="8" Padding="14,11"
+                                Margin="0,0,0,12">
+                            <StackPanel Orientation="Horizontal">
+                                <materialDesign:PackIcon Kind="Forum" Width="22" Height="22"
+                                                         VerticalAlignment="Center" Foreground="#7289DA" />
+                                <TextBlock Text="{Binding DiscordContact}" Margin="12,0,0,0" FontSize="15"
+                                           FontWeight="Bold" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </Border>
+
+                        <WrapPanel>
+                            <Button Height="36" Padding="18,0" Margin="0,0,10,0"
+                                    Style="{StaticResource MaterialDesignOutlinedButton}"
+                                    Command="{Binding CopyDiscordCommand}">
+                                <StackPanel Orientation="Horizontal">
+                                    <materialDesign:PackIcon Kind="ContentCopy" VerticalAlignment="Center" />
+                                    <TextBlock Text="Copia contatto" Margin="9,0,0,0" VerticalAlignment="Center" />
+                                </StackPanel>
+                            </Button>
+
+                            <Button Height="36" Padding="18,0" Margin="0,0,10,0"
+                                    Style="{StaticResource MaterialDesignOutlinedButton}"
+                                    Visibility="{Binding HasDiscordInvite, Converter={StaticResource BoolToVis}}"
+                                    Command="{Binding OpenDiscordCommand}">
+                                <StackPanel Orientation="Horizontal">
+                                    <materialDesign:PackIcon Kind="OpenInNew" VerticalAlignment="Center" />
+                                    <TextBlock Text="Apri Discord" Margin="9,0,0,0" VerticalAlignment="Center" />
+                                </StackPanel>
+                            </Button>
+
+                            <!-- The async command disables itself while it runs; no IsEnabled needed. -->
+                            <Button Height="36" Padding="18,0" Style="{StaticResource MaterialDesignFlatButton}"
+                                    Foreground="{StaticResource AppTextDim}"
+                                    Command="{Binding RecheckCommand}"
+                                    Content="Ricontrolla" />
+                        </WrapPanel>
+                    </StackPanel>
+                </Border>
+
+            </StackPanel>
+        </ScrollViewer>
+    </DockPanel>
+</Window>

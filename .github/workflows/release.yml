@@ -1,0 +1,150 @@
+name: Build e Release
+
+# Compila l'app come singolo .exe autonomo (nessun .NET da installare sul PC di
+# destinazione). Su un tag v* pubblica la Release su GitHub con l'.exe gia'
+# allegato dal runner: il binario non passa mai dalla connessione di casa.
+
+on:
+  push:
+    branches: [master]
+    tags: ['v*']
+  # La pagina "New release" di GitHub crea il tag da se'. A seconda di come lo
+  # fa, l'evento push sul tag puo' non arrivare: questo trigger copre quel caso.
+  release:
+    types: [published]
+  workflow_dispatch:
+
+# Nessun filtro sui path: con 'paths-ignore' attivo un push di solo tag non
+# porta commit, quindi il filtro lo scarterebbe e la release non partirebbe.
+
+env:
+  PROJECT: EldoradoApp/EldoradoApp.csproj
+  ARTIFACT_NAME: EldoradoBot.exe
+
+jobs:
+  build:
+    name: Compila (Windows)
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore
+        run: dotnet restore ${{ env.PROJECT }}
+
+      - name: Ricava la versione dal tag
+        id: ver
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Solo i build da tag hanno un numero di versione: v1.2.3 -> 1.2.3.
+          # Sui push di master resta il default 1.0.0.0.
+          if [[ "${GITHUB_REF:-}" == refs/tags/v* ]]; then
+            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish single-file self-contained
+        shell: pwsh
+        env:
+          APP_VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          # Le stesse opzioni del build a mano: un solo .exe da ~66 MB, con le
+          # librerie native estratte a runtime e compresso (senza compressione
+          # sarebbero ~154 MB). Niente PDB: non serve a chi lo esegue.
+          $props = @(
+            '-c', 'Release',
+            '-r', 'win-x64',
+            '--self-contained', 'true',
+            '-p:PublishSingleFile=true',
+            '-p:IncludeNativeLibrariesForSelfExtract=true',
+            '-p:EnableCompressionInSingleFile=true',
+            '-p:DebugType=none',
+            '-p:DebugSymbols=false',
+            '-o', 'publish'
+          )
+
+          # Cosi' le proprieta' del file corrispondono al tag della release.
+          if ($env:APP_VERSION) {
+            $props += "-p:Version=$env:APP_VERSION"
+            Write-Host "Versione: $env:APP_VERSION"
+          }
+
+          dotnet publish $env:PROJECT @props
+
+      - name: Rinomina e controlla il risultato
+        shell: pwsh
+        run: |
+          $exe = Join-Path 'publish' 'EldoradoApp.exe'
+          if (-not (Test-Path $exe)) {
+            Get-ChildItem publish
+            throw "EldoradoApp.exe non prodotto dal publish."
+          }
+
+          $out = Join-Path 'publish' '${{ env.ARTIFACT_NAME }}'
+          Move-Item $exe $out -Force
+
+          $size = (Get-Item $out).Length
+          Write-Host "$($out): $([math]::Round($size / 1MB, 1)) MB"
+
+          # Un single-file self-contained sta sulle decine di MB. Molto meno
+          # significa che il publish e' uscito framework-dependent e sul PC di
+          # destinazione non partirebbe.
+          if ($size -lt 20MB) {
+            throw "Eseguibile troppo piccolo ($size byte): non e' self-contained."
+          }
+
+      - name: Carica l'artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: eldorado-bot-exe
+          path: publish/${{ env.ARTIFACT_NAME }}
+          retention-days: 30
+          if-no-files-found: error
+
+  release:
+    name: Allega l'exe alla Release GitHub
+    needs: build
+    # Solo per i tag: un push su master non deve creare release.
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+
+    steps:
+      - name: Scarica l'artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: eldorado-bot-exe
+          path: dist
+
+      - name: Crea la release (o aggiornala) con l'exe allegato
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          exe="$(find dist -maxdepth 1 -type f -name '*.exe' | head -n1)"
+          [ -n "$exe" ] || { echo "::error::artifact mancante"; exit 1; }
+
+          # Se la release esiste gia' - creata a mano dalla pagina "New release"
+          # di GitHub - non va ricreata: le si allega soltanto il binario.
+          # --clobber sostituisce un allegato con lo stesso nome.
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            echo "Release $GITHUB_REF_NAME gia' presente: allego il binario."
+            gh release upload "$GITHUB_REF_NAME" "$exe" --clobber
+          else
+            echo "Creo la release $GITHUB_REF_NAME."
+            gh release create "$GITHUB_REF_NAME" "$exe" \
+              --title "$GITHUB_REF_NAME" \
+              --generate-notes
+          fi
+
+          gh release view "$GITHUB_REF_NAME" --json name,tagName,assets \
+            --jq '"\(.tagName) - allegati: \(.assets | map(.name) | join(", "))"'

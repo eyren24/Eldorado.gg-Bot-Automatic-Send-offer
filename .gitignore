@@ -11,3 +11,9 @@ scripts/received-raw.json
 scripts/detail-*.json
 scripts/formconfig-*.json
 scripts/probe/
+
+# Chiavi di firma delle licenze e registro clienti: mai nel repo.
+# (Di norma vivono in %AppData%\EldoradoKeygen, ma non solo se usi ELDORADO_KEYGEN_HOME.)
+tools/EldoradoKeygen/keys/
+private.key
+ledger.csv

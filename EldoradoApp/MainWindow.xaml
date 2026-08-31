@@ -105,6 +105,22 @@
                             <TextBlock Text="⚠ LIVE: le offerte partono davvero" FontSize="10.5"
                                        TextWrapping="Wrap" Foreground="#FFCDD2" />
                         </Border>
+
+                        <!-- Renewal nag: only in the last few days, and it opens the page.
+                             Height/MinHeight are overridden because the Material button
+                             style pins them to 32px, which would clip the wrapped text. -->
+                        <Button Margin="0,10,0,0" Padding="0" BorderThickness="0" Background="Transparent"
+                                Height="Auto" MinHeight="0" MinWidth="0"
+                                HorizontalContentAlignment="Stretch" Cursor="Hand"
+                                Style="{StaticResource MaterialDesignFlatButton}"
+                                Command="{Binding NavigateCommand}"
+                                CommandParameter="{x:Static vm:AppSection.License}"
+                                Visibility="{Binding IsLicenseExpiringSoon, Converter={StaticResource BoolToVis}}">
+                            <Border Background="#22FFC857" CornerRadius="8" Padding="10,7">
+                                <TextBlock Text="{Binding LicenseWarning}" FontSize="10.5"
+                                           TextWrapping="Wrap" Foreground="#FFE0A0" />
+                            </Border>
+                        </Button>
                     </StackPanel>
                 </Border>
 
@@ -215,6 +231,10 @@
                 <pages:AccountPage DataContext="{Binding Account}"
                                    Visibility="{Binding DataContext.Section, RelativeSource={RelativeSource AncestorType=Window},
                                                 Converter={StaticResource EqualsToVis}, ConverterParameter=Account}" />
+
+                <pages:LicensePage DataContext="{Binding License}"
+                                   Visibility="{Binding DataContext.Section, RelativeSource={RelativeSource AncestorType=Window},
+                                                Converter={StaticResource EqualsToVis}, ConverterParameter=License}" />
             </Grid>
 
             <!-- Status bar -->

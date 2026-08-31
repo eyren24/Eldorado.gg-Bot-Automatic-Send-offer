@@ -5,6 +5,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using EldoradoApp.Models;
 using EldoradoApp.Services;
+using EldoradoApp.Services.Licensing;
 
 namespace EldoradoApp.ViewModels;
 
@@ -21,8 +22,10 @@ public sealed partial class ShellViewModel : ObservableObject
     private readonly SettingsHost _host;
     private readonly Dispatcher _dispatcher;
     private readonly AutoOfferEngine _engine;
+    private readonly LicenseService _license;
 
     private CancellationTokenSource? _loopCts;
+    private DispatcherTimer? _licenseTimer;
 
     public SettingsHost Host => _host;
 
@@ -32,6 +35,7 @@ public sealed partial class ShellViewModel : ObservableObject
     public ExtrasViewModel Extras { get; }
     public MessageViewModel Message { get; }
     public AccountViewModel Account { get; }
+    public LicenseViewModel License { get; }
 
     /// <summary>The follow-up message pipeline; its automatic channel is wired by the view.</summary>
     public OfferMessageDispatcher Messages { get; }
@@ -45,6 +49,7 @@ public sealed partial class ShellViewModel : ObservableObject
         new(AppSection.Message, "Messaggio", "MessageTextFast", "Testo automatico e banner"),
         new(AppSection.Chat, "Chat", "Web", "Browser integrato Eldorado"),
         new(AppSection.Account, "Account", "AccountCog", "Accesso, gioco e categorie"),
+        new(AppSection.License, "Licenza", "KeyVariant", "Stato della chiave, scadenza e rinnovo"),
     ];
 
     public ObservableCollection<AutoOfferLogItem> Activity { get; } = [];
@@ -137,9 +142,19 @@ public sealed partial class ShellViewModel : ObservableObject
     /// <summary>True while the bot would submit for real (used for the red warning strip).</summary>
     public bool IsArmed => IsRunning && !_host.Settings.DryRun;
 
-    public ShellViewModel(EldoradoBackend backend)
+    /// <summary>True while the licence is valid but close enough to its end to warn about.</summary>
+    public bool IsLicenseExpiringSoon => _license.IsExpiringSoon;
+
+    /// <summary>The renewal nag shown in the rail during the last few days.</summary>
+    public string LicenseWarning => _license.Info is null
+        ? ""
+        : $"Licenza in scadenza fra {_license.DaysLeft} giorn{(_license.DaysLeft == 1 ? "o" : "i")} " +
+          $"· rinnova su Discord {LicenseOptions.DiscordContact}";
+
+    public ShellViewModel(EldoradoBackend backend, LicenseService license)
     {
         _backend = backend;
+        _license = license;
         _dispatcher = Application.Current.Dispatcher;
         _host = new SettingsHost();
 
@@ -149,6 +164,7 @@ public sealed partial class ShellViewModel : ObservableObject
         Extras = new ExtrasViewModel(_host);
         Message = new MessageViewModel(_host);
         Account = new AccountViewModel(backend, _host);
+        License = new LicenseViewModel(license);
 
         Messages = new OfferMessageDispatcher(() => _host.Settings, new ClipboardOfferMessenger(_dispatcher));
         Messages.Delivered += record => _dispatcher.Invoke(() => Message.Record(record));
@@ -159,8 +175,46 @@ public sealed partial class ShellViewModel : ObservableObject
         Account.SignedInChanged += () => _ = Feed.RefreshAsync();
         _host.Changed += () => OnPropertyChanged(nameof(IsArmed));
 
+        _license.Changed += OnLicenseChanged;
+        StartLicenseWatchdog();
+
         SelectedNav = Sections[0];
     }
+
+    /// <summary>
+    /// A licence that runs out mid-session has to stop the bot, not merely grey out a
+    /// button — the app can sit open for days on end, so the expiry is re-checked on a
+    /// timer rather than only at startup.
+    /// </summary>
+    private void StartLicenseWatchdog()
+    {
+        _licenseTimer = new DispatcherTimer { Interval = TimeSpan.FromMinutes(5) };
+        _licenseTimer.Tick += (_, _) =>
+        {
+            _license.Refresh();
+            _ = _license.RefreshRevocationAsync();
+        };
+        _licenseTimer.Start();
+    }
+
+    private void OnLicenseChanged() => _dispatcher.Invoke(() =>
+    {
+        OnPropertyChanged(nameof(IsLicenseExpiringSoon));
+        OnPropertyChanged(nameof(LicenseWarning));
+
+        if (_license.IsValid)
+        {
+            return;
+        }
+
+        if (IsRunning)
+        {
+            StopBot();
+        }
+
+        StatusMessage = _license.Message;
+        Navigate(AppSection.License);
+    });
 
     /// <summary>Startup: restore the session, load games/categories and fill the feed.</summary>
     public async Task InitializeAsync()
@@ -208,6 +262,15 @@ public sealed partial class ShellViewModel : ObservableObject
             return;
         }
 
+        // Re-checked here and not just at startup: the licence can lapse while the app is
+        // open, and this is the one command that spends the seller's money.
+        if (_license.Refresh() != LicenseState.Valid)
+        {
+            StatusMessage = _license.Message;
+            Navigate(AppSection.License);
+            return;
+        }
+
         if (!_backend.IsSignedIn)
         {
             StatusMessage = "Accedi prima di avviare il bot";
@@ -243,6 +306,13 @@ public sealed partial class ShellViewModel : ObservableObject
     [RelayCommand]
     private async Task RunOnceAsync()
     {
+        if (_license.Refresh() != LicenseState.Valid)
+        {
+            StatusMessage = _license.Message;
+            Navigate(AppSection.License);
+            return;
+        }
+
         if (!_backend.IsSignedIn)
         {
             StatusMessage = "Accedi prima di eseguire un ciclo";

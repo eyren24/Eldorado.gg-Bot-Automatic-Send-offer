@@ -9,7 +9,8 @@ public enum AppSection
     Extras,
     Message,
     Chat,
-    Account
+    Account,
+    License
 }
 
 /// <summary>One entry of the navigation rail.</summary>

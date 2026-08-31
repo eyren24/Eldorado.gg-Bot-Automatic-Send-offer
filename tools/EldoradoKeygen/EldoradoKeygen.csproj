@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <OutputType>Exe</OutputType>
+        <TargetFramework>net10.0</TargetFramework>
+        <Nullable>enable</Nullable>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <RootNamespace>EldoradoKeygen</RootNamespace>
+        <AssemblyName>keygen</AssemblyName>
+        <InvariantGlobalization>true</InvariantGlobalization>
+    </PropertyGroup>
+
+    <!--
+        The key format is shared with the app by compiling the very same files, so the two
+        can never disagree about a byte. Nothing here is copied: edit them in EldoradoApp
+        and both sides move together. Note what is NOT linked - LicenseStore, HardwareId,
+        LicenseOptions - the generator never needs them, and the app never needs a signer.
+    -->
+    <ItemGroup>
+        <Compile Include="..\..\EldoradoApp\Models\LicenseInfo.cs" Link="Shared\LicenseInfo.cs" />
+        <Compile Include="..\..\EldoradoApp\Services\Licensing\Base32.cs" Link="Shared\Base32.cs" />
+        <Compile Include="..\..\EldoradoApp\Services\Licensing\LicenseCodec.cs" Link="Shared\LicenseCodec.cs" />
+    </ItemGroup>
+
+</Project>
