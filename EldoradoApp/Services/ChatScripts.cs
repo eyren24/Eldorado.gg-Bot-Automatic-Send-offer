@@ -315,6 +315,40 @@ public static class ChatScripts
               return false;
             },
 
+            // Where the send control lives. Normally the panel around the composer — but an
+            // upload confirmation REPLACES the composer with its own panel (big preview,
+            // filename, Cancel, Send), and then there is no composer to derive it from.
+            // Falling back to the document is what makes that dialog reachable at all.
+            sendRoot: function () {
+              var box = __el.composer();
+              return box ? __el.panel(box) : (document.body || document.documentElement);
+            },
+
+            // The panel holding whatever is waiting to be sent: the composer bar, or the
+            // upload confirmation grown from its own send button.
+            sendBar: function () {
+              var box = __el.composer();
+              if (box) {
+                var bar = box;
+                for (var i = 0; i < 4 && bar.parentElement; i++) {
+                  var parent = bar.parentElement;
+                  if (parent.getBoundingClientRect().height > 220) { break; }
+                  bar = parent;
+                }
+                return bar;
+              }
+
+              var btn = __el.sendButton(true);
+              if (!btn) { return null; }
+              var e = btn;
+              for (var j = 0; j < 8 && e.parentElement; j++) {
+                var r = e.getBoundingClientRect();
+                if (r.height > 120 && r.width > 160) { break; }
+                e = e.parentElement;
+              }
+              return e;
+            },
+
             // The button that sends the message — never the one that attaches a file.
             //
             // Pass includeDisabled to find it even while the chat has it greyed out, which
@@ -322,9 +356,9 @@ public static class ChatScripts
             // yet" is the whole point: pressing during an upload does nothing, and the old
             // selector answered that state by falling through to the attach control and
             // opening a file picker.
-            sendButton: function (box, includeDisabled) {
+            sendButton: function (includeDisabled) {
               var nodes = Array.prototype.slice.call(
-                __el.panel(box).querySelectorAll('button,[role="button"],[type="submit"]'));
+                __el.sendRoot().querySelectorAll('button,[role="button"],[type="submit"]'));
 
               var best = null, bestScore = -1;
               for (var i = 0; i < nodes.length; i++) {
@@ -589,18 +623,18 @@ public static class ChatScripts
         (function () {
           try {
             var box = __el.composer();
-            if (!box) { return { ok: false, reason: 'casella messaggi non trovata' }; }
-
-            var ready = __el.sendButton(box, false);
-            var any = __el.sendButton(box, true);
+            var ready = __el.sendButton(false);
+            var any = __el.sendButton(true);
 
             return {
               ok: true,
               ready: !!ready,
               present: !!any,
               waiting: !!(any && !ready),
+              // No composer but a send button: the upload confirmation is on screen.
+              dialog: !box && !!any,
               label: any ? __el.label(any) : '',
-              text: __el.value(box).length
+              text: box ? __el.value(box).length : 0
             };
           } catch (e) { return { ok: false, reason: String(e) }; }
         })()
@@ -610,13 +644,16 @@ public static class ChatScripts
     public const string ClickSend = """
         (function () {
           try {
-            var box = __el.composer();
-            if (!box) { return { ok: true, reason: 'casella sparita' }; }
-            var btn = __el.sendButton(box, false);
+            // Deliberately no "no composer, nothing to do" shortcut here. Eldorado's upload
+            // confirmation REPLACES the composer with its own panel — big preview, filename,
+            // Cancel and Send — so the composer being gone is exactly the moment the Send
+            // button matters most. Reporting success and pressing nothing left the picture
+            // sitting in that dialog forever.
+            var btn = __el.sendButton(false);
             if (!btn) {
               // Say which of the two it is: a chat whose send button is merely greyed out
               // is still uploading, and that is worth waiting for rather than giving up on.
-              var off = __el.sendButton(box, true);
+              var off = __el.sendButton(true);
               return off
                 ? { ok: false, waiting: true, reason: 'pulsante "' + __el.label(off) + '" ancora disabilitato' }
                 : { ok: false, waiting: false, reason: 'pulsante di invio non trovato' };
@@ -652,20 +689,12 @@ public static class ChatScripts
     public const string Staged = """
         (function () {
           try {
-            var box = __el.composer();
-            if (!box) { return { ok: false, reason: 'casella messaggi non trovata' }; }
+            // The composer bar, or the upload confirmation when the composer is gone — never
+            // the whole panel, whose conversation is full of images already sent.
+            var bar = __el.sendBar();
+            if (!bar) { return { ok: true, staged: 0, text: 0 }; }
 
-            // The composer bar: a few levels up from the box, never the whole panel — the
-            // conversation above is full of images that have already been sent, and counting
-            // one of those would report an attachment that never left the composer.
-            // The parent is measured BEFORE climbing into it, so the walk stops just short
-            // of the oversized ancestor instead of landing on it.
-            var bar = box;
-            for (var i = 0; i < 4 && bar.parentElement; i++) {
-              var parent = bar.parentElement;
-              if (parent.getBoundingClientRect().height > 220) { break; }
-              bar = parent;
-            }
+            var box = __el.composer();
 
             // Deliberately no [class*="attach"] here: that is what the attach *button* is
             // called, and it is part of the furniture. Counting it made the composer look
@@ -683,7 +712,7 @@ public static class ChatScripts
               staged++;
             }
 
-            return { ok: true, staged: staged, text: __el.value(box).length };
+            return { ok: true, staged: staged, text: box ? __el.value(box).length : 0 };
           } catch (e) { return { ok: false, reason: String(e) }; }
         })()
         """;
@@ -748,7 +777,7 @@ public static class ChatScripts
             info.composer = box ? __el.describe(box) : null;
             info.composerChain = box ? __el.chain(box) : [];
             info.header = __el.header();
-            info.sendButton = box && __el.sendButton(box) ? __el.describe(__el.sendButton(box)) : null;
+            info.sendButton = box && __el.sendButton(false) ? __el.describe(__el.sendButton(false)) : null;
             var s = __el.search();
             info.search = s ? __el.describe(s) : null;
             info.editables = __el.editables().slice(0, 20).map(function (e) { return __el.describe(e); });

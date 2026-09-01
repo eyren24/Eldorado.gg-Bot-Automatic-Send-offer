@@ -33,10 +33,10 @@ public sealed class ChatBrowserMessenger(
     WebView2 browser, Dispatcher dispatcher, Func<OfferMessageSettings> config) : IOfferMessenger
 {
     /// <summary>Time the page gets to switch conversation after a click.</summary>
-    private const int SettleMs = 900;
+    private const int SettleMs = 500;
 
     /// <summary>Time the chat gets to accept a send gesture before it is checked.</summary>
-    private const int SendMs = 700;
+    private const int SendMs = 350;
 
     /// <summary>How long a single injected step may take before it is given up on.</summary>
     private const int ScriptTimeoutMs = 10_000;
@@ -196,6 +196,8 @@ public sealed class ChatBrowserMessenger(
         // conversation usually does not exist yet at this point — there is no row to click
         // in the inbox — and the site's own "chat with the buyer" button is what creates it.
         var link = DeepLink(settings, message);
+        List<Probed> probes;
+
         if (link is not null)
         {
             var landed = await NavigateAsync(link, ct).ConfigureAwait(false);
@@ -205,8 +207,8 @@ public sealed class ChatBrowserMessenger(
                     $"la richiesta non esiste piu': la pagina e' finita su {Shorten(landed)}"));
             }
 
-            var opened = await ProbeAsync(buyer, ct).ConfigureAwait(false);
-            if (opened.Any(p => p.HasComposer))
+            probes = await ProbeAsync(buyer, ct).ConfigureAwait(false);
+            if (probes.Any(p => p.HasComposer))
             {
                 notes.Add("link diretto");
             }
@@ -220,33 +222,40 @@ public sealed class ChatBrowserMessenger(
                         $"su {Shorten(link)} non c'e' ne' la chat ne' un pulsante per aprirla"));
                 }
 
+                // The button opens the conversation right here, so this is where the message
+                // gets written — no going back to the request, and no inbox to reach.
+                //
+                // Hunting for a conversation list at this point was costing the full 15 s
+                // timeout on every single message: the chat that button opens has neither a
+                // list nor a filter, so the inbox wait could only ever run out.
+                probes = await WaitForComposerAsync(buyer, ct).ConfigureAwait(false);
                 notes.Add($"chat aperta dalla richiesta ({Reason(pressed)})");
-                await Task.Delay(SettleMs, ct).ConfigureAwait(false);
             }
         }
-        else if (!IsInbox(dispatcher.Invoke(() => browser.Source?.ToString() ?? ""), settings.ChatUrl))
+        else
         {
-            await NavigateAsync(settings.ChatUrl, ct).ConfigureAwait(false);
-        }
+            if (!IsInbox(dispatcher.Invoke(() => browser.Source?.ToString() ?? ""), settings.ChatUrl))
+            {
+                await NavigateAsync(settings.ChatUrl, ct).ConfigureAwait(false);
+            }
 
-        var probes = await WaitForInboxAsync(buyer, ct).ConfigureAwait(false);
-        if (probes.Count == 0)
-        {
-            return (null, OfferMessageResult.Failed(
-                "la pagina della chat non risponde: apri la scheda Chat e accedi a Eldorado"));
-        }
+            probes = await WaitForInboxAsync(buyer, ct).ConfigureAwait(false);
+            if (probes.Count == 0)
+            {
+                return (null, OfferMessageResult.Failed(
+                    "la pagina della chat non risponde: apri la scheda Chat e accedi a Eldorado"));
+            }
 
-        if (link is null)
-        {
             var failure = await SelectRowAsync(buyer, probes, notes, ct).ConfigureAwait(false);
             if (failure is not null)
             {
                 return (null, failure);
             }
+
+            // Opening a conversation rebuilds the composer, and can move it to another frame.
+            probes = await ProbeAsync(buyer, ct).ConfigureAwait(false);
         }
 
-        // Opening a conversation rebuilds the composer, and can move it to another frame.
-        probes = await ProbeAsync(buyer, ct).ConfigureAwait(false);
         var chat = probes.FirstOrDefault(p => p.HasComposer);
         if (chat is null)
         {
@@ -356,7 +365,7 @@ public sealed class ChatBrowserMessenger(
     /// <summary>Enter first; the send button only if something is still sitting in the box.</summary>
     private async Task SendGestureAsync(Target chat, CancellationToken ct)
     {
-        await Task.Delay(200, ct).ConfigureAwait(false);
+        await Task.Delay(120, ct).ConfigureAwait(false);
         await EvalAsync(chat, ChatScripts.Compose(ChatScripts.Submit), ct).ConfigureAwait(false);
         await Task.Delay(SendMs, ct).ConfigureAwait(false);
 
@@ -388,7 +397,7 @@ public sealed class ChatBrowserMessenger(
         // one, because the browser itself reads the system clipboard and builds the event.
         if (await PasteBannerAsync(chat, path, ct).ConfigureAwait(false))
         {
-            await Task.Delay(1200, ct).ConfigureAwait(false);
+            await Task.Delay(500, ct).ConfigureAwait(false);
 
             // Did the paste actually put a preview in the composer? Dispatching the key
             // event only means the browser was asked to paste. Without this check a paste
@@ -433,8 +442,8 @@ public sealed class ChatBrowserMessenger(
             return $"banner NON allegato ({string.Join(" · ", tried)})";
         }
 
-        // The upload needs a moment before the chat will accept the send gesture.
-        await Task.Delay(1500, ct).ConfigureAwait(false);
+        // Only long enough for the upload to start; WaitForSendReadyAsync does the waiting.
+        await Task.Delay(300, ct).ConfigureAwait(false);
         await SendAttachmentAsync(chat, ct).ConfigureAwait(false);
 
         if (await BannerLandedAsync(chat, before, ct).ConfigureAwait(false))
@@ -468,25 +477,71 @@ public sealed class ChatBrowserMessenger(
     /// <summary>How long the upload gets to finish before the send button is pressed anyway.</summary>
     private const int UploadWaitMs = 15_000;
 
+    /// <summary>
+    /// How many times the send button is pressed before giving up on it.
+    /// </summary>
+    /// <remarks>
+    /// More than one because Eldorado's own upload dialog needs it: the first press is
+    /// swallowed and the picture stays put, by hand exactly as from here. Pressing again is
+    /// safe — the retry only happens while the attachment is demonstrably still sitting in
+    /// the composer, so a press that did work is never repeated.
+    /// </remarks>
+    private const int SendAttempts = 3;
+
     private async Task SendAttachmentAsync(Target chat, CancellationToken ct)
     {
-        await WaitForSendReadyAsync(chat, ct).ConfigureAwait(false);
-
-        var clicked = await EvalAsync(chat, ChatScripts.Compose(ChatScripts.ClickSend), ct).ConfigureAwait(false);
-        await Task.Delay(SendMs, ct).ConfigureAwait(false);
-
-        // Logged whether it worked or not: when the chat markup moves, this line is the
-        // difference between "the button was renamed" and "we pressed too early".
-        ApiLog.Write($"[chat] invio allegato: {Reason(clicked)}");
-
-        if (clicked is not null && Flag(clicked.Value, "ok") &&
-            await StagedAsync(chat, ct).ConfigureAwait(false) == 0)
+        for (var attempt = 1; attempt <= SendAttempts; attempt++)
         {
-            return;   // the preview left the composer, so it went out
+            await WaitForSendReadyAsync(chat, ct).ConfigureAwait(false);
+
+            var clicked = await EvalAsync(chat, ChatScripts.Compose(ChatScripts.ClickSend), ct)
+                .ConfigureAwait(false);
+
+            // Logged whether it worked or not: when the chat markup moves, this line is the
+            // difference between "the button was renamed" and "we pressed too early".
+            ApiLog.Write($"[chat] invio allegato {attempt}/{SendAttempts}: {Reason(clicked)}");
+
+            // The attachment leaving the composer is the only proof it went out — the click
+            // reports that the button was pressed, not that the chat did anything with it.
+            if (await WaitStagedClearedAsync(chat, 1_500, ct).ConfigureAwait(false))
+            {
+                if (attempt > 1)
+                {
+                    ApiLog.Write($"[chat] allegato partito al tentativo {attempt}");
+                }
+
+                return;
+            }
         }
 
+        // Still there after every press: Enter as the last resort.
         await EvalAsync(chat, ChatScripts.Compose(ChatScripts.Submit), ct).ConfigureAwait(false);
         await Task.Delay(SendMs, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Waits for the composer to let go of the staged attachment. True when it did, which is
+    /// what tells a press that worked from one the chat swallowed.
+    /// </summary>
+    private async Task<bool> WaitStagedClearedAsync(Target chat, int timeoutMs, CancellationToken ct)
+    {
+        var waited = 0;
+
+        while (true)
+        {
+            if (await StagedAsync(chat, ct).ConfigureAwait(false) == 0)
+            {
+                return true;
+            }
+
+            if (waited >= timeoutMs)
+            {
+                return false;
+            }
+
+            await Task.Delay(200, ct).ConfigureAwait(false);
+            waited += 200;
+        }
     }
 
     /// <summary>
@@ -522,8 +577,8 @@ public sealed class ChatBrowserMessenger(
                 return;
             }
 
-            await Task.Delay(500, ct).ConfigureAwait(false);
-            waited += 500;
+            await Task.Delay(250, ct).ConfigureAwait(false);
+            waited += 250;
         }
 
         ApiLog.Write($"[chat] upload ancora in corso dopo {UploadWaitMs} ms: premo comunque");
@@ -616,9 +671,9 @@ public sealed class ChatBrowserMessenger(
         var links = Number(before.Value, "links");
 
         // Uploads are not instant: give the conversation a few seconds to show the file.
-        for (var attempt = 0; attempt < 8; attempt++)
+        for (var attempt = 0; attempt < 10; attempt++)
         {
-            await Task.Delay(1200, ct).ConfigureAwait(false);
+            await Task.Delay(400, ct).ConfigureAwait(false);
 
             var now = await EvalAsync(chat, ChatScripts.Compose(ChatScripts.PanelState), ct).ConfigureAwait(false);
             if (now is null || !Flag(now.Value, "ok"))
@@ -738,6 +793,30 @@ public sealed class ChatBrowserMessenger(
         }
 
         return probes;
+    }
+
+    /// <summary>
+    /// Polls until the composer the "chat with the buyer" button brings up has rendered.
+    /// </summary>
+    /// <remarks>
+    /// Short and quick on purpose: the conversation is already on screen, so this only has
+    /// to outlast the widget mounting. It replaces <see cref="WaitForInboxAsync"/> on this
+    /// route, which waited for a list or a filter that a chat opened this way never has.
+    /// </remarks>
+    private async Task<List<Probed>> WaitForComposerAsync(string buyer, CancellationToken ct)
+    {
+        var deadline = Environment.TickCount64 + 8_000;
+
+        while (true)
+        {
+            var probes = await ProbeAsync(buyer, ct).ConfigureAwait(false);
+            if (probes.Any(p => p.HasComposer) || Environment.TickCount64 >= deadline)
+            {
+                return probes;
+            }
+
+            await Task.Delay(250, ct).ConfigureAwait(false);
+        }
     }
 
     /// <summary>Polls until the inbox has rendered — it is a SPA, the page load means little.</summary>
