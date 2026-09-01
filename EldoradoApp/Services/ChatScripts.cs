@@ -298,17 +298,39 @@ public static class ChatScripts
             // sits last, so pressing "send" opened a file picker instead. Now the name of
             // the button decides, the class is only a weak hint, and anything that looks
             // like attach/emoji/voice is excluded outright.
-            sendButton: function (box) {
+            // Words that name a control which is definitely NOT send. Checked against the
+            // button's name; only the unmistakable ones are also checked against its class,
+            // because class lists are full of layout words ("clip", "close") that would
+            // throw away the real button.
+            bannedName: /attach|allega|upload|carica|file|photo|foto|image|immagine|picture|gallery|emoji|emoticon|gif|sticker|adesivo|record|audio|voice|micro|camera|cancel|annulla|delete|remove|rimuovi|close|chiudi/,
+            bannedClass: /attach|allega|upload|carica|emoji|emoticon|gif|sticker|adesivo/,
+            wantedSend: /(^|[^a-z])(send|invia|submit|enviar|senden|envoyer)([^a-z]|$)/,
+
+            /// True while a control cannot be pressed. Covers a real button's own flag, the
+            /// ARIA one, and the bare attribute a div playing button carries instead.
+            off: function (e) {
+              if (e.disabled) { return true; }
+              if (__el.attr(e, 'aria-disabled') === 'true') { return true; }
+              if (e.hasAttribute && e.hasAttribute('disabled')) { return true; }
+              return false;
+            },
+
+            // The button that sends the message — never the one that attaches a file.
+            //
+            // Pass includeDisabled to find it even while the chat has it greyed out, which
+            // is what it does during an upload. Telling "not there" apart from "not ready
+            // yet" is the whole point: pressing during an upload does nothing, and the old
+            // selector answered that state by falling through to the attach control and
+            // opening a file picker.
+            sendButton: function (box, includeDisabled) {
               var nodes = Array.prototype.slice.call(
                 __el.panel(box).querySelectorAll('button,[role="button"],[type="submit"]'));
-
-              var banned = /attach|allega|upload|carica|file|photo|foto|image|immagine|picture|gallery|emoji|emoticon|gif|sticker|adesivo|record|audio|voice|micro|camera|clip|cancel|annulla|delete|remove|rimuovi|close|chiudi/;
-              var wanted = /(^|[^a-z])(send|invia|submit|enviar|senden|envoyer)([^a-z]|$)/;
 
               var best = null, bestScore = -1;
               for (var i = 0; i < nodes.length; i++) {
                 var e = nodes[i];
-                if (!__el.visible(e) || e.disabled || __el.attr(e, 'aria-disabled') === 'true') { continue; }
+                if (!__el.visible(e)) { continue; }
+                if (!includeDisabled && __el.off(e)) { continue; }
 
                 // A control that owns a file input is the attach button, whatever it is called.
                 if (e.querySelector && e.querySelector('input[type="file"]')) { continue; }
@@ -316,11 +338,11 @@ public static class ChatScripts
                 var label = __el.low(__el.attr(e, 'aria-label') + ' ' + __el.attr(e, 'title') + ' ' +
                                      __el.attr(e, 'data-testid') + ' ' + __el.norm(e.textContent));
                 var cls = __el.low(__el.cls(e));
-                if (banned.test(label) || banned.test(cls)) { continue; }
+                if (__el.bannedName.test(label) || __el.bannedClass.test(cls)) { continue; }
 
                 var rank = -1;
-                if (wanted.test(label)) { rank = 3; }                               // named send
-                else if (wanted.test(cls)) { rank = 2; }                            // class only
+                if (__el.wantedSend.test(label)) { rank = 3; }                      // named send
+                else if (__el.wantedSend.test(cls)) { rank = 2; }                   // class only
                 else if (__el.low(__el.attr(e, 'type')) === 'submit') { rank = 1; } // a submit control
                 if (rank < 0) { continue; }
 
@@ -558,14 +580,47 @@ public static class ChatScripts
         })()
         """;
 
+    /// <summary>
+    /// Whether the chat is ready to be told to send: is there a send button at all, and is
+    /// it pressable yet? A chat greys it out while a file is uploading, so this is what
+    /// separates "no button here" from "the upload hasn't finished".
+    /// </summary>
+    public const string SendState = """
+        (function () {
+          try {
+            var box = __el.composer();
+            if (!box) { return { ok: false, reason: 'casella messaggi non trovata' }; }
+
+            var ready = __el.sendButton(box, false);
+            var any = __el.sendButton(box, true);
+
+            return {
+              ok: true,
+              ready: !!ready,
+              present: !!any,
+              waiting: !!(any && !ready),
+              label: any ? __el.label(any) : '',
+              text: __el.value(box).length
+            };
+          } catch (e) { return { ok: false, reason: String(e) }; }
+        })()
+        """;
+
     /// <summary>Clicks the chat's send button; skipped when disabled, i.e. nothing to send.</summary>
     public const string ClickSend = """
         (function () {
           try {
             var box = __el.composer();
             if (!box) { return { ok: true, reason: 'casella sparita' }; }
-            var btn = __el.sendButton(box);
-            if (!btn) { return { ok: false, reason: 'pulsante di invio non trovato' }; }
+            var btn = __el.sendButton(box, false);
+            if (!btn) {
+              // Say which of the two it is: a chat whose send button is merely greyed out
+              // is still uploading, and that is worth waiting for rather than giving up on.
+              var off = __el.sendButton(box, true);
+              return off
+                ? { ok: false, waiting: true, reason: 'pulsante "' + __el.label(off) + '" ancora disabilitato' }
+                : { ok: false, waiting: false, reason: 'pulsante di invio non trovato' };
+            }
             __el.click(btn);
             // The name goes in the log: if the wrong control is ever pressed again, the
             // report says which one instead of just "premuto".

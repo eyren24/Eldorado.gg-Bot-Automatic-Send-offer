@@ -465,23 +465,68 @@ public sealed class ChatBrowserMessenger(
     /// fallback, and it is only reached when the preview is still sitting there — which also
     /// stops the two gestures from sending the same attachment twice.
     /// </remarks>
+    /// <summary>How long the upload gets to finish before the send button is pressed anyway.</summary>
+    private const int UploadWaitMs = 15_000;
+
     private async Task SendAttachmentAsync(Target chat, CancellationToken ct)
     {
+        await WaitForSendReadyAsync(chat, ct).ConfigureAwait(false);
+
         var clicked = await EvalAsync(chat, ChatScripts.Compose(ChatScripts.ClickSend), ct).ConfigureAwait(false);
         await Task.Delay(SendMs, ct).ConfigureAwait(false);
 
-        if (clicked is not null && Flag(clicked.Value, "ok"))
-        {
-            ApiLog.Write($"[chat] allegato: {Reason(clicked)}");
+        // Logged whether it worked or not: when the chat markup moves, this line is the
+        // difference between "the button was renamed" and "we pressed too early".
+        ApiLog.Write($"[chat] invio allegato: {Reason(clicked)}");
 
-            if (await StagedAsync(chat, ct).ConfigureAwait(false) == 0)
-            {
-                return;   // the preview left the composer, so it went out
-            }
+        if (clicked is not null && Flag(clicked.Value, "ok") &&
+            await StagedAsync(chat, ct).ConfigureAwait(false) == 0)
+        {
+            return;   // the preview left the composer, so it went out
         }
 
         await EvalAsync(chat, ChatScripts.Compose(ChatScripts.Submit), ct).ConfigureAwait(false);
         await Task.Delay(SendMs, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Waits for the chat to be willing to send. A file goes up in the background and the
+    /// send button stays greyed out until it lands — pressing during that window does
+    /// nothing at all, which is what made the bot look like it never pressed send.
+    /// </summary>
+    private async Task WaitForSendReadyAsync(Target chat, CancellationToken ct)
+    {
+        var waited = 0;
+        while (waited < UploadWaitMs)
+        {
+            var state = await EvalAsync(chat, ChatScripts.Compose(ChatScripts.SendState), ct).ConfigureAwait(false);
+            if (state is null || !Flag(state.Value, "ok"))
+            {
+                return;   // nothing to read: let the click step report what it finds
+            }
+
+            if (Flag(state.Value, "ready"))
+            {
+                if (waited > 0)
+                {
+                    ApiLog.Write($"[chat] upload finito dopo {waited} ms · pulsante \"{Text(state.Value, "label")}\"");
+                }
+
+                return;
+            }
+
+            if (!Flag(state.Value, "waiting"))
+            {
+                // No send button at all, disabled or otherwise: waiting cannot help.
+                ApiLog.Write("[chat] nessun pulsante di invio nella barra: si usa Invio");
+                return;
+            }
+
+            await Task.Delay(500, ct).ConfigureAwait(false);
+            waited += 500;
+        }
+
+        ApiLog.Write($"[chat] upload ancora in corso dopo {UploadWaitMs} ms: premo comunque");
     }
 
     /// <summary>
