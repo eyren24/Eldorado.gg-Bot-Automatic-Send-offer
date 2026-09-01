@@ -404,40 +404,45 @@ public sealed class ChatBrowserMessenger(
         if (how is null)
         {
             await DumpFailureAsync(ct).ConfigureAwait(false);
-            return "banner NON caricato: niente campo file, niente appunti";
+            return "banner NON caricato: la chat non ha accettato ne' il campo file ne' gli appunti";
         }
 
-        // 2 - WAIT FOR THE UPLOAD. The chat keeps its send button disabled until the file has
-        // landed, and pressing before that does nothing at all.
-        var waited = await WaitUploadDoneAsync(chat, ct).ConfigureAwait(false);
+        // 2 - WAIT FOR THE PICTURE, not for a button.
+        //
+        // TalkJS uploads and posts the file by itself, with no send press at all: its send
+        // button belongs to the text field and stays grey throughout, because there is no
+        // text. Waiting on that button meant six dead seconds and then declaring a banner
+        // lost that the buyer had already received.
+        if (await WaitImageAppearedAsync(chat, before, BannerWaitMs, ct).ConfigureAwait(false))
+        {
+            return $"banner inviato ({how})";
+        }
 
-        // 3 - PRESS SEND. Eldorado swallows the first press on its upload dialog, by hand
-        // exactly as from here, so it is pressed again until the picture actually appears.
+        // 3 - PRESS SEND. Only for a chat that does not post the file on its own, and where
+        // the first press can be swallowed by its upload dialog.
         for (var attempt = 1; attempt <= SendAttempts; attempt++)
         {
             var clicked = await ClickSendAsync(chat, ct).ConfigureAwait(false);
             ApiLog.Write($"[chat] banner, invio {attempt}/{SendAttempts}: {Reason(clicked)}");
 
-            // A short look between presses and a longer one after the last: a swallowed
-            // press should be pressed again quickly, not waited out for three seconds.
-            var window = attempt == SendAttempts ? 3_000 : 1_200;
-
-            if (await WaitImageAppearedAsync(chat, before, window, ct).ConfigureAwait(false))
+            if (await WaitImageAppearedAsync(chat, before, 1_500, ct).ConfigureAwait(false))
             {
-                var presses = attempt > 1 ? $", {attempt} pressioni" : "";
-                return $"banner inviato ({how}, upload {waited} ms{presses})";
+                return $"banner inviato ({how}, {attempt} pressioni)";
             }
         }
 
         await DumpFailureAsync(ct).ConfigureAwait(false);
-        return $"banner caricato ({how}) ma NON inviato: e' negli appunti, incollalo a mano";
+        return $"banner caricato ({how}) ma NON comparso in chat";
     }
 
     /// <summary>Gets the banner into the composer. Returns how it got there, or null.</summary>
+    /// <remarks>
+    /// The file input leads: it is the route that demonstrably reaches TalkJS, and it needs
+    /// no window focus. Whether it worked is not decided here — the caller waits for the
+    /// picture to appear in the conversation, which is the only signal that means anything.
+    /// </remarks>
     private async Task<string?> UploadBannerAsync(Target chat, string path, CancellationToken ct)
     {
-        // The chat's own file input first: it is the route that works, and it needs no
-        // window focus.
         var image = ReadImage(path, out var problem);
         if (image is null)
         {
@@ -455,51 +460,13 @@ public sealed class ChatBrowserMessenger(
             ApiLog.Write($"[chat] campo file: {Reason(attached)}");
         }
 
-        // The browser's own paste, which a chat that checks isTrusted still accepts.
+        // The browser's own paste, for a chat that has no file input to hand bytes to.
         if (await PasteBannerAsync(chat, path, ct).ConfigureAwait(false))
         {
-            await Task.Delay(SendMs, ct).ConfigureAwait(false);
             return "incollato dagli appunti";
         }
 
         return null;
-    }
-
-    /// <summary>
-    /// Waits for the chat to release the send button, which is how it says the upload landed.
-    /// Returns how long that took; the cap stops a chat that never enables it from holding up
-    /// the messages that follow.
-    /// </summary>
-    private async Task<int> WaitUploadDoneAsync(Target chat, CancellationToken ct)
-    {
-        var script = ChatScripts.Compose(ChatScripts.SendState);
-        var waited = 0;
-
-        while (waited < UploadWaitMs)
-        {
-            var state = await EvalAsync(chat, script, ct).ConfigureAwait(false);
-
-            // The upload panel can sit in a different frame than the conversation.
-            if (state is null || !Flag(state.Value, "ready"))
-            {
-                var other = await RunEverywhereAsync(script, ct).ConfigureAwait(false);
-                if (other is { } found && Flag(found, "ready"))
-                {
-                    state = found;
-                }
-            }
-
-            if (state is { } ready && Flag(ready, "ready"))
-            {
-                return waited;
-            }
-
-            await Task.Delay(250, ct).ConfigureAwait(false);
-            waited += 250;
-        }
-
-        ApiLog.Write($"[chat] invio non sbloccato in {UploadWaitMs} ms: premo comunque");
-        return waited;
     }
 
     /// <summary>Presses send in the conversation's frame, then in every other one.</summary>
@@ -552,10 +519,10 @@ public sealed class ChatBrowserMessenger(
     }
 
     /// <summary>
-    /// How long the upload gets before send is pressed anyway. Short, because this wait sits
-    /// in front of the text messages.
+    /// How long the picture gets to appear in the conversation after the upload. Short,
+    /// because this wait sits in front of the text messages.
     /// </summary>
-    private const int UploadWaitMs = 6_000;
+    private const int BannerWaitMs = 6_000;
 
     /// <summary>
     /// How many times send is pressed before giving up. More than one because Eldorado's own
