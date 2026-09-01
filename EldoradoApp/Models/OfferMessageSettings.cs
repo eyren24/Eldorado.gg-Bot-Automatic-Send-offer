@@ -34,6 +34,20 @@ public sealed class OfferMessageSettings
         "Sono un booster affidabile: niente cheat, account sempre al sicuro, aggiornamenti costanti.\n" +
         "Accetta l'offerta e partiamo subito! 🚀";
 
+    /// <summary>
+    /// Send the template as several chat messages — one per block separated by a blank
+    /// line — instead of one long one.
+    /// </summary>
+    /// <remarks>
+    /// On by default because it is how a person writes in a chat, and because a chat
+    /// composer sends on Enter: a single message can only hold soft line breaks, and a
+    /// widget that refuses those would otherwise flatten the whole template onto one line.
+    /// </remarks>
+    public bool SplitMessages { get; set; } = true;
+
+    /// <summary>Pause between two consecutive chat messages, so they don't arrive as one burst.</summary>
+    public int BetweenMessagesMs { get; set; } = 900;
+
     /// <summary>Absolute path of the banner image attached to the message (optional).</summary>
     public string BannerPath { get; set; } = "";
 

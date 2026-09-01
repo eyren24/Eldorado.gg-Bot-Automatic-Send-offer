@@ -36,6 +36,7 @@ public sealed partial class MessageViewModel : ObservableObject
     [ObservableProperty] private bool _copyToClipboard;
     [ObservableProperty] private bool _attachBanner;
     [ObservableProperty] private bool _strictBuyerMatch;
+    [ObservableProperty] private bool _splitMessages;
     [ObservableProperty] private string _conversationUrl = "";
     [ObservableProperty] private int _delaySeconds;
     [ObservableProperty] private string _chatUrl = "";
@@ -44,6 +45,8 @@ public sealed partial class MessageViewModel : ObservableObject
 
     [ObservableProperty] private string _preview = "";
     [ObservableProperty] private string _bannerStatus = "Nessun banner selezionato";
+    [ObservableProperty] private string _splitStatus = "";
+    [ObservableProperty] private int _messageCount;
     [ObservableProperty] private bool _hasBanner;
 
     public MessageViewModel(SettingsHost host)
@@ -70,6 +73,7 @@ public sealed partial class MessageViewModel : ObservableObject
             CopyToClipboard = Config.CopyToClipboard;
             AttachBanner = Config.AttachBanner;
             StrictBuyerMatch = Config.StrictBuyerMatch;
+            SplitMessages = Config.SplitMessages;
             ConversationUrl = Config.ConversationUrl;
             DelaySeconds = Config.DelaySeconds;
             ChatUrl = Config.ChatUrl;
@@ -94,6 +98,7 @@ public sealed partial class MessageViewModel : ObservableObject
         Config.CopyToClipboard = CopyToClipboard;
         Config.AttachBanner = AttachBanner;
         Config.StrictBuyerMatch = StrictBuyerMatch;
+        Config.SplitMessages = SplitMessages;
         Config.ConversationUrl = (ConversationUrl ?? "").Trim();
         Config.DelaySeconds = Math.Max(0, DelaySeconds);
         Config.ChatUrl = string.IsNullOrWhiteSpace(ChatUrl) ? OfferMessageSettings.DefaultChatUrl : ChatUrl.Trim();
@@ -108,6 +113,7 @@ public sealed partial class MessageViewModel : ObservableObject
     partial void OnCopyToClipboardChanged(bool value) => ApplyAndPreview();
     partial void OnAttachBannerChanged(bool value) => ApplyAndPreview();
     partial void OnStrictBuyerMatchChanged(bool value) => ApplyAndPreview();
+    partial void OnSplitMessagesChanged(bool value) => ApplyAndPreview();
     partial void OnConversationUrlChanged(string value) => ApplyAndPreview();
     partial void OnDelaySecondsChanged(int value) => ApplyAndPreview();
     partial void OnChatUrlChanged(string value) => ApplyAndPreview();
@@ -125,6 +131,9 @@ public sealed partial class MessageViewModel : ObservableObject
         RefreshPreview();
         _host.Touch();
     }
+
+    /// <summary>Marks where one chat message ends and the next begins, in the preview only.</summary>
+    private const string Separator = "\n\n───  messaggio successivo  ───\n\n";
 
     /// <summary>Renders the template against a realistic example offer.</summary>
     public void RefreshPreview()
@@ -151,7 +160,20 @@ public sealed partial class MessageViewModel : ObservableObject
             BuyerId: null, BuyerUsername: "MarioRossi",
             IsBuyerMuted: false, CreatedDate: DateTimeOffset.Now);
 
-        Preview = OfferMessageComposer.Compose(Template ?? "", example, quote, Settings.DefaultDeliveryTime);
+        var composed = OfferMessageComposer.Compose(Template ?? "", example, quote, Settings.DefaultDeliveryTime);
+        var parts = OfferMessageComposer.Split(composed, SplitMessages);
+
+        // Show the message boundaries, not just the text: the whole point of splitting is
+        // that the buyer gets several chat bubbles, and the preview has to make that visible.
+        MessageCount = parts.Count;
+        SplitStatus = parts.Count switch
+        {
+            0 => "Nessun messaggio: il template e' vuoto",
+            1 => "1 messaggio in chat",
+            _ => $"{parts.Count} messaggi in chat, uno per blocco separato da una riga vuota"
+        };
+
+        Preview = string.Join(Separator, parts);
     }
 
     [RelayCommand]

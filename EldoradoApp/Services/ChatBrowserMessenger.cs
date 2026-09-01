@@ -2,6 +2,7 @@ using System.Collections.Specialized;
 using System.IO;
 using System.Text.Json;
 using System.Windows;
+using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using EldoradoApp.Models;
@@ -143,15 +144,43 @@ public sealed class ChatBrowserMessenger(
 
         var chat = opened.Chat!;
 
-        var written = await WriteAsync(chat, message.Text, settings, ct).ConfigureAwait(false);
-        if (written is { } textFailure)
+        // One chat message per block of the template, sent in order.
+        var parts = OfferMessageComposer.Split(message.Text, settings.SplitMessages);
+        if (parts.Count == 0)
         {
-            return textFailure;
+            return OfferMessageResult.Failed("nessun testo da inviare");
         }
 
+        // The banner leads. It is the thing that makes the buyer stop scrolling, so it has
+        // to be above the pitch, not below it — and sending it while the composer is still
+        // empty keeps the upload from racing a half-typed message.
         if (settings.AttachBanner && message.HasBanner)
         {
             notes.Add(await AttachBannerAsync(chat, message.BannerPath!, ct).ConfigureAwait(false));
+        }
+
+        for (var i = 0; i < parts.Count; i++)
+        {
+            if (i > 0 && settings.BetweenMessagesMs > 0)
+            {
+                // A pause between messages: they arrive as a person writing them, and the
+                // chat gets time to clear its composer before the next one is typed in.
+                await Task.Delay(Math.Clamp(settings.BetweenMessagesMs, 0, 10_000), ct).ConfigureAwait(false);
+            }
+
+            var written = await WriteAsync(chat, parts[i], settings, ct).ConfigureAwait(false);
+            if (written is { } textFailure)
+            {
+                // Say how far it got: with several messages, "not sent" alone would hide
+                // that the buyer already has the first half of the pitch.
+                var sent = i == 0 ? "" : $" (i primi {i} di {parts.Count} sono partiti)";
+                return textFailure with { Detail = textFailure.Detail + sent };
+            }
+        }
+
+        if (parts.Count > 1)
+        {
+            notes.Add($"{parts.Count} messaggi");
         }
 
         var detail = notes.Count == 0 ? "" : " · " + string.Join(" · ", notes);
@@ -352,48 +381,107 @@ public sealed class ChatBrowserMessenger(
     /// </summary>
     private async Task<string> AttachBannerAsync(Target chat, string path, CancellationToken ct)
     {
-        var image = ReadImage(path, out var problem);
-        if (image is null)
-        {
-            return $"banner NON allegato ({problem})";
-        }
-
         var before = await EvalAsync(chat, ChatScripts.Compose(ChatScripts.PanelState), ct).ConfigureAwait(false);
+        var tried = new List<string>();
 
         // A genuine paste first. A chat that ignores synthesised events still honours this
         // one, because the browser itself reads the system clipboard and builds the event.
         if (await PasteBannerAsync(chat, path, ct).ConfigureAwait(false))
         {
             await Task.Delay(1200, ct).ConfigureAwait(false);
-            await SendAttachmentAsync(chat, ct).ConfigureAwait(false);
 
-            if (await BannerLandedAsync(chat, before, ct).ConfigureAwait(false))
+            // Did the paste actually put a preview in the composer? Dispatching the key
+            // event only means the browser was asked to paste. Without this check a paste
+            // that did nothing still cost ten seconds of polling before the next route.
+            if (await StagedAsync(chat, ct).ConfigureAwait(false) > 0)
             {
-                return "banner allegato (incollato dagli appunti)";
+                await SendAttachmentAsync(chat, ct).ConfigureAwait(false);
+
+                if (await BannerLandedAsync(chat, before, ct).ConfigureAwait(false))
+                {
+                    return "banner allegato (incollato dagli appunti)";
+                }
+
+                tried.Add("appunti: anteprima comparsa ma non inviata");
             }
+            else
+            {
+                tried.Add("appunti: nessuna anteprima nella casella");
+            }
+        }
+        else
+        {
+            tried.Add("appunti: incolla non riuscito");
+        }
+
+        // Only the script route needs the image inlined in the payload. Reading it is done
+        // here and not at the top, because a banner too big to inline says nothing about
+        // whether the clipboard route above could have carried it — and doing it first meant
+        // one oversized file disabled the attachment entirely.
+        var image = ReadImage(path, out var problem);
+        if (image is null)
+        {
+            tried.Add($"script: {problem}");
+            return $"banner NON allegato ({string.Join(" · ", tried)})";
         }
 
         var attached = await EvalAsync(chat, ChatScripts.Compose(ChatScripts.Attach, imageJson: image), ct)
             .ConfigureAwait(false);
         if (attached is null || !Flag(attached.Value, "ok"))
         {
-            return $"banner NON allegato ({Reason(attached)})";
+            tried.Add($"script: {Reason(attached)}");
+            return $"banner NON allegato ({string.Join(" · ", tried)})";
         }
 
         // The upload needs a moment before the chat will accept the send gesture.
         await Task.Delay(1500, ct).ConfigureAwait(false);
         await SendAttachmentAsync(chat, ct).ConfigureAwait(false);
 
-        return await BannerLandedAsync(chat, before, ct).ConfigureAwait(false)
-            ? $"banner allegato ({Reason(attached)})"
-            : $"banner NON allegato: la chat non l'ha accettato (provati appunti e {Reason(attached)})";
+        if (await BannerLandedAsync(chat, before, ct).ConfigureAwait(false))
+        {
+            return $"banner allegato ({Reason(attached)})";
+        }
+
+        tried.Add($"script: {Reason(attached)}, ma la chat non l'ha mostrato");
+
+        // The image is still on the clipboard from the paste attempt, so the seller can drop
+        // it into the chat by hand instead of hunting for the file.
+        return $"banner NON allegato ({string.Join(" · ", tried)}) — è negli appunti, incollalo a mano";
     }
 
+    /// <summary>How many attachment previews are sitting in the composer, waiting to be sent.</summary>
+    private async Task<int> StagedAsync(Target chat, CancellationToken ct)
+    {
+        var staged = await EvalAsync(chat, ChatScripts.Compose(ChatScripts.Staged), ct).ConfigureAwait(false);
+        return staged is null || !Flag(staged.Value, "ok") ? 0 : Number(staged.Value, "staged");
+    }
+
+    /// <summary>
+    /// Sends what the upload left staged in the composer.
+    /// </summary>
+    /// <remarks>
+    /// The button is the gesture that counts here, so it goes first: a composer holding only
+    /// a file has no text, and most chats ignore Enter in that state. Enter stays as the
+    /// fallback, and it is only reached when the preview is still sitting there — which also
+    /// stops the two gestures from sending the same attachment twice.
+    /// </remarks>
     private async Task SendAttachmentAsync(Target chat, CancellationToken ct)
     {
+        var clicked = await EvalAsync(chat, ChatScripts.Compose(ChatScripts.ClickSend), ct).ConfigureAwait(false);
+        await Task.Delay(SendMs, ct).ConfigureAwait(false);
+
+        if (clicked is not null && Flag(clicked.Value, "ok"))
+        {
+            ApiLog.Write($"[chat] allegato: {Reason(clicked)}");
+
+            if (await StagedAsync(chat, ct).ConfigureAwait(false) == 0)
+            {
+                return;   // the preview left the composer, so it went out
+            }
+        }
+
         await EvalAsync(chat, ChatScripts.Compose(ChatScripts.Submit), ct).ConfigureAwait(false);
         await Task.Delay(SendMs, ct).ConfigureAwait(false);
-        await EvalAsync(chat, ChatScripts.Compose(ChatScripts.ClickSend), ct).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -785,7 +873,16 @@ public sealed class ChatBrowserMessenger(
     private static string Reason(JsonElement? element) =>
         element is { } value ? Text(value, "reason") : "nessuna risposta dalla pagina";
 
+    /// <summary>The image travels inside the injected script, so it has to stay small.</summary>
+    private const int MaxImageBytes = 4 * 1024 * 1024;
+
     /// <summary>Reads the banner as the <c>{name, type, data}</c> payload the attach step wants.</summary>
+    /// <remarks>
+    /// An oversized banner is re-encoded smaller rather than refused. Picking a 4 MB
+    /// screenshot as your banner is an ordinary thing to do, and the old behaviour turned
+    /// 160 KB over the line into "no banner at all" — reported as "4 MB, massimo 4", which
+    /// reads like the file was exactly at the limit.
+    /// </remarks>
     private static string? ReadImage(string path, out string problem)
     {
         problem = "";
@@ -799,18 +896,31 @@ public sealed class ChatBrowserMessenger(
                 return null;
             }
 
-            // The image travels inside the injected script, so it has to stay small.
-            if (file.Length > 4 * 1024 * 1024)
+            var bytes = File.ReadAllBytes(path);
+            var name = Path.GetFileName(path);
+            var type = MimeType(path);
+
+            if (bytes.Length > MaxImageBytes)
             {
-                problem = $"immagine troppo grande ({file.Length / 1024 / 1024} MB, massimo 4)";
-                return null;
+                var smaller = Shrink(path, out var why);
+                if (smaller is null)
+                {
+                    problem = $"immagine di {Megabytes(bytes.Length)} non riducibile sotto " +
+                              $"{Megabytes(MaxImageBytes)} ({why})";
+                    return null;
+                }
+
+                ApiLog.Write($"[chat] banner ridotto da {Megabytes(bytes.Length)} a {Megabytes(smaller.Length)}");
+                bytes = smaller;
+                name = Path.GetFileNameWithoutExtension(path) + ".jpg";
+                type = "image/jpeg";
             }
 
             return JsonSerializer.Serialize(new
             {
-                name = Path.GetFileName(path),
-                type = MimeType(path),
-                data = Convert.ToBase64String(File.ReadAllBytes(path))
+                name,
+                type,
+                data = Convert.ToBase64String(bytes)
             });
         }
         catch (Exception ex)
@@ -819,6 +929,64 @@ public sealed class ChatBrowserMessenger(
             return null;
         }
     }
+
+    /// <summary>
+    /// Re-encodes the banner as a JPEG, halving the width until it fits. Returns null when
+    /// even the smallest step is still too big, or the file isn't a readable image.
+    /// </summary>
+    private static byte[]? Shrink(string path, out string problem)
+    {
+        problem = "";
+
+        try
+        {
+            var source = new BitmapImage();
+            source.BeginInit();
+            source.CacheOption = BitmapCacheOption.OnLoad;          // release the file handle
+            source.CreateOptions = BitmapCreateOptions.IgnoreColorProfile;
+            source.UriSource = new Uri(path, UriKind.Absolute);
+            source.EndInit();
+            source.Freeze();
+
+            foreach (var width in new[] { source.PixelWidth, 1600, 1200, 900, 640, 480 })
+            {
+                if (width > source.PixelWidth || width <= 0)
+                {
+                    continue;   // never upscale: it would only add bytes
+                }
+
+                BitmapSource frame = source;
+                if (width < source.PixelWidth)
+                {
+                    var scale = (double)width / source.PixelWidth;
+                    var scaled = new TransformedBitmap(source, new ScaleTransform(scale, scale));
+                    scaled.Freeze();
+                    frame = scaled;
+                }
+
+                var encoder = new JpegBitmapEncoder { QualityLevel = 82 };
+                encoder.Frames.Add(BitmapFrame.Create(frame));
+
+                using var buffer = new MemoryStream();
+                encoder.Save(buffer);
+
+                if (buffer.Length <= MaxImageBytes)
+                {
+                    return buffer.ToArray();
+                }
+            }
+
+            problem = "resta troppo grande anche a 480 px";
+            return null;
+        }
+        catch (Exception ex)
+        {
+            problem = ex.Message;
+            return null;
+        }
+    }
+
+    private static string Megabytes(long bytes) => $"{bytes / 1024d / 1024d:0.0} MB";
 
     private static string MimeType(string path) => Path.GetExtension(path).ToLowerInvariant() switch
     {

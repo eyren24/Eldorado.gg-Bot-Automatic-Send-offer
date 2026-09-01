@@ -32,6 +32,41 @@ public static partial class OfferMessageComposer
     [GeneratedRegex(@"\n{3,}")]
     private static partial Regex ExtraBlankLines();
 
+    /// <summary>A blank line — the boundary between one chat message and the next.</summary>
+    [GeneratedRegex(@"\n[ \t]*\n")]
+    private static partial Regex MessageBreak();
+
+    /// <summary>
+    /// Splits a composed message into the chat messages to actually send: one per block
+    /// separated by a blank line. Single line breaks stay inside their message.
+    /// </summary>
+    /// <remarks>
+    /// Sending several short messages is both what the seller asked for and the only way a
+    /// multi-line template survives a chat composer that sends on Enter. With
+    /// <paramref name="split"/> off the whole text stays one message, line breaks and all.
+    /// </remarks>
+    public static IReadOnlyList<string> Split(string? text, bool split)
+    {
+        var body = Normalize(text ?? "");
+        if (string.IsNullOrWhiteSpace(body))
+        {
+            return [];
+        }
+
+        if (!split)
+        {
+            return [body];
+        }
+
+        return [.. MessageBreak().Split(body)
+            .Select(part => part.Trim())
+            .Where(part => part.Length > 0)];
+    }
+
+    /// <summary>Line endings the scripts can rely on: no CR, no run of blank lines.</summary>
+    private static string Normalize(string text) =>
+        ExtraBlankLines().Replace(text.Replace("\r\n", "\n").Replace('\r', '\n'), "\n\n").Trim();
+
     public static string Compose(
         string template,
         BoostingRequest request,
@@ -55,8 +90,10 @@ public static partial class OfferMessageComposer
             .Replace("{date}", now.ToString("dd/MM/yyyy"))
             .Replace("{time}", now.ToString("HH:mm"));
 
-        // A template line like "{extras}" collapses to nothing when there are none.
-        return ExtraBlankLines().Replace(text, "\n\n").Trim();
+        // A template line like "{extras}" collapses to nothing when there are none. The CRs
+        // matter: a template typed in the UI is saved with "\r\n", and a stray CR reaches the
+        // chat as a character rather than a line break.
+        return Normalize(text);
     }
 
     private static string ExtrasText(PriceQuote quote)

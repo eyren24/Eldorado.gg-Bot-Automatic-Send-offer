@@ -222,8 +222,14 @@ public static class ChatScripts
               return box.isContentEditable ? __el.norm(box.innerText || box.textContent) : __el.norm(box.value);
             },
 
-            // execCommand keeps the site's own input handling intact (React included) and
-            // preserves the line breaks; the native setter is the fallback for the rest.
+            // execCommand keeps the site's own input handling intact (React included); the
+            // native setter is the fallback for the rest.
+            //
+            // Line breaks are written one at a time with insertLineBreak, NOT by handing the
+            // whole string to insertText: in a contenteditable a "\n" inside inserted text is
+            // just whitespace and collapses, which is why a multi-line template used to
+            // arrive as one run-on line. Pressing Enter is not an option either — the chat
+            // reads that as "send".
             type: function (box, text) {
               box.focus();
               try {
@@ -232,16 +238,45 @@ public static class ChatScripts
                   range.selectNodeContents(box); sel.removeAllRanges(); sel.addRange(range);
                 } else { box.select(); }
               } catch (err) { }
-              var done = false;
-              try { done = document.execCommand('insertText', false, text); } catch (err) { done = false; }
+
+              var lines = String(text == null ? '' : text).split(/\r\n|\r|\n/);
+              var done = true;
+              try {
+                for (var i = 0; i < lines.length; i++) {
+                  if (i > 0) {
+                    var broke = false;
+                    try { broke = document.execCommand('insertLineBreak'); } catch (e1) { broke = false; }
+                    if (!broke) {
+                      try { broke = document.execCommand('insertHTML', false, '<br>'); } catch (e2) { broke = false; }
+                    }
+                    if (!broke) {
+                      try { broke = document.execCommand('insertText', false, '\n'); } catch (e3) { broke = false; }
+                    }
+                    if (!broke) { done = false; }
+                  }
+                  if (lines[i].length) {
+                    var wrote = false;
+                    try { wrote = document.execCommand('insertText', false, lines[i]); } catch (e4) { wrote = false; }
+                    if (!wrote) { done = false; }
+                  }
+                }
+              } catch (err) { done = false; }
+
               if (!done || !__el.value(box)) {
+                // Whole-value fallback. A textarea keeps "\n" natively; a contenteditable
+                // needs real <br> nodes, so the text is rebuilt rather than assigned.
                 if (box.isContentEditable) {
-                  box.textContent = text;
+                  while (box.firstChild) { box.removeChild(box.firstChild); }
+                  for (var j = 0; j < lines.length; j++) {
+                    if (j > 0) { box.appendChild(document.createElement('br')); }
+                    if (lines[j].length) { box.appendChild(document.createTextNode(lines[j])); }
+                  }
                   box.dispatchEvent(new InputEvent('input', { bubbles: true, data: text, inputType: 'insertText' }));
                 } else {
+                  var flat = box.tagName === 'TEXTAREA' ? lines.join('\n') : lines.join(' ');
                   var proto = box.tagName === 'TEXTAREA'
                     ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
-                  Object.getOwnPropertyDescriptor(proto, 'value').set.call(box, text);
+                  Object.getOwnPropertyDescriptor(proto, 'value').set.call(box, flat);
                   box.dispatchEvent(new Event('input', { bubbles: true }));
                 }
               }
@@ -255,17 +290,51 @@ public static class ChatScripts
                 }));
               }
             },
+            // The button that sends the message — never the one that attaches a file.
+            //
+            // This used to test /send|invia|submit/ against the class name as well, walking
+            // the list backwards and taking the first hit. In a composer bar whose wrapper
+            // is called something like "sendbox", the attach control matches on class and
+            // sits last, so pressing "send" opened a file picker instead. Now the name of
+            // the button decides, the class is only a weak hint, and anything that looks
+            // like attach/emoji/voice is excluded outright.
             sendButton: function (box) {
               var nodes = Array.prototype.slice.call(
                 __el.panel(box).querySelectorAll('button,[role="button"],[type="submit"]'));
-              for (var i = nodes.length - 1; i >= 0; i--) {
+
+              var banned = /attach|allega|upload|carica|file|photo|foto|image|immagine|picture|gallery|emoji|emoticon|gif|sticker|adesivo|record|audio|voice|micro|camera|clip|cancel|annulla|delete|remove|rimuovi|close|chiudi/;
+              var wanted = /(^|[^a-z])(send|invia|submit|enviar|senden|envoyer)([^a-z]|$)/;
+
+              var best = null, bestScore = -1;
+              for (var i = 0; i < nodes.length; i++) {
                 var e = nodes[i];
                 if (!__el.visible(e) || e.disabled || __el.attr(e, 'aria-disabled') === 'true') { continue; }
-                var t = __el.low(__el.attr(e, 'aria-label') + ' ' + __el.attr(e, 'title') + ' ' +
-                                 __el.attr(e, 'data-testid') + ' ' + __el.cls(e));
-                if (/send|invia|submit/.test(t)) { return e; }
+
+                // A control that owns a file input is the attach button, whatever it is called.
+                if (e.querySelector && e.querySelector('input[type="file"]')) { continue; }
+
+                var label = __el.low(__el.attr(e, 'aria-label') + ' ' + __el.attr(e, 'title') + ' ' +
+                                     __el.attr(e, 'data-testid') + ' ' + __el.norm(e.textContent));
+                var cls = __el.low(__el.cls(e));
+                if (banned.test(label) || banned.test(cls)) { continue; }
+
+                var rank = -1;
+                if (wanted.test(label)) { rank = 3; }                               // named send
+                else if (wanted.test(cls)) { rank = 2; }                            // class only
+                else if (__el.low(__el.attr(e, 'type')) === 'submit') { rank = 1; } // a submit control
+                if (rank < 0) { continue; }
+
+                // Same rank: the one further down the bar wins, which is where send sits.
+                var score = rank * 1000 + i;
+                if (score > bestScore) { bestScore = score; best = e; }
               }
-              return null;
+              return best;
+            },
+
+            /// Readable name of a button, for the log.
+            label: function (e) {
+              return __el.norm(__el.attr(e, 'aria-label') || __el.attr(e, 'title') ||
+                               __el.attr(e, 'data-testid') || e.textContent || __el.cls(e)).slice(0, 40);
             },
 
             describe: function (e) {
@@ -498,7 +567,9 @@ public static class ChatScripts
             var btn = __el.sendButton(box);
             if (!btn) { return { ok: false, reason: 'pulsante di invio non trovato' }; }
             __el.click(btn);
-            return { ok: true, reason: 'pulsante di invio premuto' };
+            // The name goes in the log: if the wrong control is ever pressed again, the
+            // report says which one instead of just "premuto".
+            return { ok: true, reason: 'premuto invio: "' + __el.label(btn) + '"' };
           } catch (e) { return { ok: false, reason: String(e) }; }
         })()
         """;
@@ -510,6 +581,55 @@ public static class ChatScripts
             var box = __el.composer();
             return { ok: true, pending: box ? __el.value(box).length : 0 };
           } catch (e) { return { ok: false, reason: String(e), pending: 0 }; }
+        })()
+        """;
+
+    /// <summary>
+    /// Whether something is sitting in the composer bar waiting to be sent — the preview a
+    /// chat shows for a file you attached but haven't sent yet.
+    /// </summary>
+    /// <remarks>
+    /// This is what tells a paste that worked from one that silently did nothing. Without it
+    /// the only answer available is <see cref="PanelState"/>, which can't say anything until
+    /// the file has been sent, so a dead paste cost ten seconds of polling before the next
+    /// route was even tried.
+    /// </remarks>
+    public const string Staged = """
+        (function () {
+          try {
+            var box = __el.composer();
+            if (!box) { return { ok: false, reason: 'casella messaggi non trovata' }; }
+
+            // The composer bar: a few levels up from the box, never the whole panel — the
+            // conversation above is full of images that have already been sent, and counting
+            // one of those would report an attachment that never left the composer.
+            // The parent is measured BEFORE climbing into it, so the walk stops just short
+            // of the oversized ancestor instead of landing on it.
+            var bar = box;
+            for (var i = 0; i < 4 && bar.parentElement; i++) {
+              var parent = bar.parentElement;
+              if (parent.getBoundingClientRect().height > 220) { break; }
+              bar = parent;
+            }
+
+            // Deliberately no [class*="attach"] here: that is what the attach *button* is
+            // called, and it is part of the furniture. Counting it made the composer look
+            // permanently loaded, so a sent attachment still read as pending.
+            var nodes = bar.querySelectorAll('img,canvas,video,[style*="background-image"],[class*="preview"],[class*="thumb"]');
+            var staged = 0;
+            for (var j = 0; j < nodes.length; j++) {
+              var n = nodes[j];
+              if (!__el.visible(n)) { continue; }
+
+              // Icons live inside the toolbar buttons and never go anywhere. Only content
+              // that is not part of a control counts as a file waiting to be sent.
+              if (n.closest && n.closest('button,[role="button"],label,[type="submit"]')) { continue; }
+
+              staged++;
+            }
+
+            return { ok: true, staged: staged, text: __el.value(box).length };
+          } catch (e) { return { ok: false, reason: String(e) }; }
         })()
         """;
 
