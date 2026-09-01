@@ -216,6 +216,20 @@
                         </StackPanel>
                     </Border>
 
+                    <!-- The simulator always prices by ladder; the bot doesn't when a category
+                         carries a flat price. Say so rather than showing a number it won't offer. -->
+                    <Border Background="#33FFC857" CornerRadius="8" Padding="12,10" Margin="0,0,0,12"
+                            BorderBrush="{StaticResource AppGold}" BorderThickness="1"
+                            Visibility="{Binding HasFlatPriceWarning, Converter={StaticResource BoolToVis}}">
+                        <DockPanel>
+                            <materialDesign:PackIcon DockPanel.Dock="Left" Kind="AlertCircleOutline"
+                                                     VerticalAlignment="Top" Margin="0,1,8,0"
+                                                     Foreground="{StaticResource AppGold}" />
+                            <TextBlock Text="{Binding FlatPriceWarning}" TextWrapping="Wrap"
+                                       FontSize="11.5" Foreground="{StaticResource AppText}" />
+                        </DockPanel>
+                    </Border>
+
                     <TextBlock Text="DETTAGLIO" FontSize="10" FontWeight="Bold" Margin="0,0,0,6"
                                Foreground="{StaticResource AppTextDim}" />
                 </StackPanel>

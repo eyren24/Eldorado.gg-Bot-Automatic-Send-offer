@@ -107,7 +107,30 @@ public sealed partial class AccountViewModel : ObservableObject
         _host.Save();
     }
 
-    /// <summary>Writes the shown category rows back into settings, preserving the other games.</summary>
+    /// <summary>
+    /// Persists a category edit immediately. The rows already wrote the value into the
+    /// settings object, so this only has to put it on disk — but it has to, because the
+    /// seller has no way of knowing that "Salva listino" on the Prezzi page doesn't cover
+    /// this grid.
+    /// </summary>
+    private void OnCategoryRowEdited()
+    {
+        if (_loadingGames)
+        {
+            return;
+        }
+
+        _host.Save();
+    }
+
+    /// <summary>
+    /// Installs the shown category rows into settings, preserving the other games.
+    /// </summary>
+    /// <remarks>
+    /// The rows write straight through to these <see cref="CategoryPricing"/> instances, so
+    /// the ones the settings hold have to be the very same objects — otherwise an edit lands
+    /// on an object nothing ever serialises, which is exactly the bug this replaced.
+    /// </remarks>
     private void PersistCurrentRows()
     {
         if (_rowsGameId is null)
@@ -118,7 +141,7 @@ public sealed partial class AccountViewModel : ObservableObject
         var others = Settings.CategoryPrices
             .Where(c => !string.Equals(c.GameId, _rowsGameId, StringComparison.OrdinalIgnoreCase))
             .ToList();
-        others.AddRange(Categories.Select(r => r.ToModel()));
+        others.AddRange(Categories.Select(r => r.Model));
         Settings.CategoryPrices = others;
     }
 
@@ -151,8 +174,12 @@ public sealed partial class AccountViewModel : ObservableObject
                 Quantity = saved?.Quantity ?? 1,
                 MinQuantity = saved?.MinQuantity ?? 1,
                 DeliveryTime = saved?.DeliveryTime ?? Settings.DefaultDeliveryTime,
-            }));
+            }, OnCategoryRowEdited));
         }
+
+        // Adopt the freshly built rows right away: from here on the grid edits the objects
+        // the settings actually hold.
+        PersistCurrentRows();
     }
 
     [RelayCommand]

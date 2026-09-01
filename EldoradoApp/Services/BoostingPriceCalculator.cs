@@ -20,9 +20,15 @@ public static class BoostingPriceCalculator
     {
         var parsed = BoostingCategoryParser.Parse(request, settings);
         var category = settings.ForCategory(request.GameId, request.BoostingCategoryId);
+        var kind = settings.KindFor(request.GameId, request.BoostingCategoryId, request.BoostingCategoryTitle);
 
-        // A category with an explicit flat price ignores every other rule.
-        if (category is { FlatPrice: > 0 })
+        // A flat price replaces every other rule — but only where there is no rank ladder to
+        // walk. On a rank boost whose range was read fine it is almost always a leftover from
+        // an older setup, and letting it win is how a Diamond 3 → Ascendant 2 job went out at
+        // 12,50 while the price list said 45,00. A rank boost the parser couldn't read still
+        // falls back to it, which is the case the flat price was added for.
+        if (category is { FlatPrice: > 0 } &&
+            (kind != BoostingCategoryKind.RankBoost || !parsed.HasRange))
         {
             var flat = new List<PriceLine>
             {
@@ -31,8 +37,6 @@ public static class BoostingPriceCalculator
 
             return Finish(settings, parsed, flat, category.FlatPrice, BoostingCategoryKind.Flat, 0, []);
         }
-
-        var kind = settings.KindFor(request.GameId, request.BoostingCategoryId, request.BoostingCategoryTitle);
 
         return kind switch
         {

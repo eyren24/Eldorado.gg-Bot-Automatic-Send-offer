@@ -62,9 +62,22 @@ public sealed partial class PricingViewModel : ObservableObject
     [ObservableProperty] private string _simulationRange = "Scegli due rank per vedere il prezzo";
     public ObservableCollection<PriceLine> SimulationLines { get; } = [];
 
+    /// <summary>
+    /// Warns when a category's flat price means the bot won't use this list. The simulator
+    /// prices by ladder unconditionally, so without this it can show a number the bot would
+    /// never offer — which is how offers went out at a third of the listed price.
+    /// </summary>
+    [ObservableProperty] private string _flatPriceWarning = "";
+    [ObservableProperty] private bool _hasFlatPriceWarning;
+
     public PricingViewModel(SettingsHost host)
     {
         _host = host;
+
+        // The flat prices live on the Account page, so the warning has to react to a save
+        // made over there rather than only to edits made here.
+        _host.Changed += UpdateFlatPriceWarning;
+
         Reload();
     }
 
@@ -181,9 +194,49 @@ public sealed partial class PricingViewModel : ObservableObject
         _host.Touch();
     }
 
+    /// <summary>
+    /// Lists the categories whose flat price makes this price list irrelevant, so the
+    /// simulator can say so instead of quietly disagreeing with the bot.
+    /// </summary>
+    private void UpdateFlatPriceWarning()
+    {
+        var flat = Settings.CategoryPrices.Where(c => c is { Enabled: true, FlatPrice: > 0 }).ToList();
+        if (flat.Count == 0)
+        {
+            HasFlatPriceWarning = false;
+            FlatPriceWarning = "";
+            return;
+        }
+
+        string Describe(CategoryPricing c) => $"{c.CategoryName} ({c.FlatPrice:N2})";
+
+        var byKind = flat
+            .ToLookup(c => Settings.KindFor(c.GameId, c.CategoryId, c.CategoryName) == BoostingCategoryKind.RankBoost);
+
+        var parts = new List<string>();
+
+        var replaced = byKind[false].Select(Describe).ToList();
+        if (replaced.Count > 0)
+        {
+            parts.Add($"Il bot offre il prezzo fisso, non questo listino, su: {string.Join(" · ", replaced)}.");
+        }
+
+        var fallback = byKind[true].Select(Describe).ToList();
+        if (fallback.Count > 0)
+        {
+            parts.Add($"Prezzo fisso usato solo quando il range di rank non si legge su: {string.Join(" · ", fallback)}.");
+        }
+
+        parts.Add("Si azzera nella scheda Account.");
+
+        HasFlatPriceWarning = true;
+        FlatPriceWarning = string.Join(" ", parts);
+    }
+
     /// <summary>Recomputes the example quote shown next to the price list.</summary>
     public void Simulate()
     {
+        UpdateFlatPriceWarning();
         SimulationLines.Clear();
 
         if (SimulationFrom is null || SimulationTo is null)

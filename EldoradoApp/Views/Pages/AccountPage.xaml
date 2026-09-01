@@ -264,8 +264,10 @@
                             </DataGridTemplateColumn.CellTemplate>
                         </DataGridTemplateColumn>
 
+                        <!-- Bound as text, like the price list: the value lands on the settings
+                             as you type, so it is saved even if the cell never loses focus. -->
                         <DataGridTextColumn Header="Prezzo fisso" Width="100"
-                                            Binding="{Binding FlatPrice, StringFormat=N2, UpdateSourceTrigger=LostFocus}" />
+                                            Binding="{Binding FlatPriceInput, UpdateSourceTrigger=PropertyChanged}" />
 
                         <DataGridTemplateColumn Header="Consegna" Width="130">
                             <DataGridTemplateColumn.CellTemplate>
