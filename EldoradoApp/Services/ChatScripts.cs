@@ -777,7 +777,30 @@ public static class ChatScripts
             info.composer = box ? __el.describe(box) : null;
             info.composerChain = box ? __el.chain(box) : [];
             info.header = __el.header();
-            info.sendButton = box && __el.sendButton(false) ? __el.describe(__el.sendButton(false)) : null;
+            info.sendButton = __el.sendButton(false) ? __el.describe(__el.sendButton(false)) : null;
+            info.sendButtonDisabled = __el.sendButton(true) ? __el.describe(__el.sendButton(true)) : null;
+            info.sendState = { hasComposer: !!box, staged: null };
+
+            // Every clickable thing near the conversation, with the verdict on each: this is
+            // what says whether the send control was missed, renamed, or merely greyed out.
+            var all = Array.prototype.slice.call(
+              (box ? __el.panel(box) : document.body).querySelectorAll('button,[role="button"],[type="submit"]'));
+            info.buttons = all.slice(0, 40).map(function (e) {
+              var name = __el.low(__el.attr(e, 'aria-label') + ' ' + __el.attr(e, 'title') + ' ' +
+                                  __el.attr(e, 'data-testid') + ' ' + __el.norm(e.textContent));
+              var cls = __el.low(__el.cls(e));
+              return {
+                label: __el.label(e),
+                cls: cls.slice(0, 120),
+                type: __el.attr(e, 'type'),
+                visible: __el.visible(e),
+                disabled: __el.off(e),
+                ownsFileInput: !!(e.querySelector && e.querySelector('input[type="file"]')),
+                bannedByName: __el.bannedName.test(name),
+                bannedByClass: __el.bannedClass.test(cls),
+                looksLikeSend: __el.wantedSend.test(name) || __el.wantedSend.test(cls)
+              };
+            });
             var s = __el.search();
             info.search = s ? __el.describe(s) : null;
             info.editables = __el.editables().slice(0, 20).map(function (e) { return __el.describe(e); });

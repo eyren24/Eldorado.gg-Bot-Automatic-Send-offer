@@ -45,8 +45,11 @@ public sealed class OfferMessageSettings
     /// </remarks>
     public bool SplitMessages { get; set; } = true;
 
-    /// <summary>Pause between two consecutive chat messages, so they don't arrive as one burst.</summary>
-    public int BetweenMessagesMs { get; set; } = 900;
+    /// <summary>
+    /// Pause between two consecutive chat messages. Short: they are meant to land in quick
+    /// succession, and this only has to outlast the composer clearing itself.
+    /// </summary>
+    public int BetweenMessagesMs { get; set; } = 400;
 
     /// <summary>Absolute path of the banner image attached to the message (optional).</summary>
     public string BannerPath { get; set; } = "";

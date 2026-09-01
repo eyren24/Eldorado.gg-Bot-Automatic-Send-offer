@@ -151,20 +151,21 @@ public sealed class ChatBrowserMessenger(
             return OfferMessageResult.Failed("nessun testo da inviare");
         }
 
-        // The banner leads. It is the thing that makes the buyer stop scrolling, so it has
-        // to be above the pitch, not below it — and sending it while the composer is still
-        // empty keeps the upload from racing a half-typed message.
+        // The banner leads: it is what makes the buyer stop scrolling, so it goes above the
+        // pitch, and sending it while the composer is still empty keeps the upload from
+        // racing a half-typed message.
         if (settings.AttachBanner && message.HasBanner)
         {
-            notes.Add(await AttachBannerAsync(chat, message.BannerPath!, ct).ConfigureAwait(false));
+            notes.Add(await SendBannerAsync(chat, message.BannerPath!, ct).ConfigureAwait(false));
         }
 
+        // Then the text, back to back.
         for (var i = 0; i < parts.Count; i++)
         {
             if (i > 0 && settings.BetweenMessagesMs > 0)
             {
-                // A pause between messages: they arrive as a person writing them, and the
-                // chat gets time to clear its composer before the next one is typed in.
+                // Just enough for the chat to clear its composer before the next one is
+                // typed in; the messages are meant to land one after another, not drip.
                 await Task.Delay(Math.Clamp(settings.BetweenMessagesMs, 0, 10_000), ct).ConfigureAwait(false);
             }
 
@@ -382,206 +383,208 @@ public sealed class ChatBrowserMessenger(
         return pending is null ? 0 : Number(pending.Value, "pending");
     }
 
+    // ---- The banner ----
+
     /// <summary>
-    /// Puts the banner in the composer and sends it as its own message, then checks that it
-    /// really landed. The attach step can only report that the page <i>accepted</i> the
-    /// events it was given, which is not the same as the file being sent — so the answer
-    /// comes from the conversation itself: an image that was not there before.
+    /// Puts the banner in the conversation: upload it, wait for the upload to finish, press
+    /// send. Returns the line that goes in the activity log.
     /// </summary>
-    private async Task<string> AttachBannerAsync(Target chat, string path, CancellationToken ct)
+    /// <remarks>
+    /// Three plain steps, because every earlier shape of this hid the failure somewhere. The
+    /// only thing trusted as proof is the conversation itself: an image that was not above
+    /// the composer before and is now. A click reports that a button was pressed; the
+    /// picture arriving is what says it worked.
+    /// </remarks>
+    private async Task<string> SendBannerAsync(Target chat, string path, CancellationToken ct)
     {
-        var before = await EvalAsync(chat, ChatScripts.Compose(ChatScripts.PanelState), ct).ConfigureAwait(false);
-        var tried = new List<string>();
+        var before = await ConversationImagesAsync(chat, ct).ConfigureAwait(false);
 
-        // A genuine paste first. A chat that ignores synthesised events still honours this
-        // one, because the browser itself reads the system clipboard and builds the event.
-        if (await PasteBannerAsync(chat, path, ct).ConfigureAwait(false))
+        // 1 - UPLOAD.
+        var how = await UploadBannerAsync(chat, path, ct).ConfigureAwait(false);
+        if (how is null)
         {
-            await Task.Delay(500, ct).ConfigureAwait(false);
-
-            // Did the paste actually put a preview in the composer? Dispatching the key
-            // event only means the browser was asked to paste. Without this check a paste
-            // that did nothing still cost ten seconds of polling before the next route.
-            if (await StagedAsync(chat, ct).ConfigureAwait(false) > 0)
-            {
-                await SendAttachmentAsync(chat, ct).ConfigureAwait(false);
-
-                if (await BannerLandedAsync(chat, before, ct).ConfigureAwait(false))
-                {
-                    return "banner allegato (incollato dagli appunti)";
-                }
-
-                tried.Add("appunti: anteprima comparsa ma non inviata");
-            }
-            else
-            {
-                tried.Add("appunti: nessuna anteprima nella casella");
-            }
-        }
-        else
-        {
-            tried.Add("appunti: incolla non riuscito");
+            await DumpFailureAsync(ct).ConfigureAwait(false);
+            return "banner NON caricato: niente campo file, niente appunti";
         }
 
-        // Only the script route needs the image inlined in the payload. Reading it is done
-        // here and not at the top, because a banner too big to inline says nothing about
-        // whether the clipboard route above could have carried it — and doing it first meant
-        // one oversized file disabled the attachment entirely.
+        // 2 - WAIT FOR THE UPLOAD. The chat keeps its send button disabled until the file has
+        // landed, and pressing before that does nothing at all.
+        var waited = await WaitUploadDoneAsync(chat, ct).ConfigureAwait(false);
+
+        // 3 - PRESS SEND. Eldorado swallows the first press on its upload dialog, by hand
+        // exactly as from here, so it is pressed again until the picture actually appears.
+        for (var attempt = 1; attempt <= SendAttempts; attempt++)
+        {
+            var clicked = await ClickSendAsync(chat, ct).ConfigureAwait(false);
+            ApiLog.Write($"[chat] banner, invio {attempt}/{SendAttempts}: {Reason(clicked)}");
+
+            // A short look between presses and a longer one after the last: a swallowed
+            // press should be pressed again quickly, not waited out for three seconds.
+            var window = attempt == SendAttempts ? 3_000 : 1_200;
+
+            if (await WaitImageAppearedAsync(chat, before, window, ct).ConfigureAwait(false))
+            {
+                var presses = attempt > 1 ? $", {attempt} pressioni" : "";
+                return $"banner inviato ({how}, upload {waited} ms{presses})";
+            }
+        }
+
+        await DumpFailureAsync(ct).ConfigureAwait(false);
+        return $"banner caricato ({how}) ma NON inviato: e' negli appunti, incollalo a mano";
+    }
+
+    /// <summary>Gets the banner into the composer. Returns how it got there, or null.</summary>
+    private async Task<string?> UploadBannerAsync(Target chat, string path, CancellationToken ct)
+    {
+        // The chat's own file input first: it is the route that works, and it needs no
+        // window focus.
         var image = ReadImage(path, out var problem);
         if (image is null)
         {
-            tried.Add($"script: {problem}");
-            return $"banner NON allegato ({string.Join(" · ", tried)})";
+            ApiLog.Write($"[chat] immagine non leggibile: {problem}");
         }
-
-        var attached = await EvalAsync(chat, ChatScripts.Compose(ChatScripts.Attach, imageJson: image), ct)
-            .ConfigureAwait(false);
-        if (attached is null || !Flag(attached.Value, "ok"))
+        else
         {
-            tried.Add($"script: {Reason(attached)}");
-            return $"banner NON allegato ({string.Join(" · ", tried)})";
-        }
-
-        // Only long enough for the upload to start; WaitForSendReadyAsync does the waiting.
-        await Task.Delay(300, ct).ConfigureAwait(false);
-        await SendAttachmentAsync(chat, ct).ConfigureAwait(false);
-
-        if (await BannerLandedAsync(chat, before, ct).ConfigureAwait(false))
-        {
-            return $"banner allegato ({Reason(attached)})";
-        }
-
-        tried.Add($"script: {Reason(attached)}, ma la chat non l'ha mostrato");
-
-        // The image is still on the clipboard from the paste attempt, so the seller can drop
-        // it into the chat by hand instead of hunting for the file.
-        return $"banner NON allegato ({string.Join(" · ", tried)}) — è negli appunti, incollalo a mano";
-    }
-
-    /// <summary>How many attachment previews are sitting in the composer, waiting to be sent.</summary>
-    private async Task<int> StagedAsync(Target chat, CancellationToken ct)
-    {
-        var staged = await EvalAsync(chat, ChatScripts.Compose(ChatScripts.Staged), ct).ConfigureAwait(false);
-        return staged is null || !Flag(staged.Value, "ok") ? 0 : Number(staged.Value, "staged");
-    }
-
-    /// <summary>
-    /// Sends what the upload left staged in the composer.
-    /// </summary>
-    /// <remarks>
-    /// The button is the gesture that counts here, so it goes first: a composer holding only
-    /// a file has no text, and most chats ignore Enter in that state. Enter stays as the
-    /// fallback, and it is only reached when the preview is still sitting there — which also
-    /// stops the two gestures from sending the same attachment twice.
-    /// </remarks>
-    /// <summary>How long the upload gets to finish before the send button is pressed anyway.</summary>
-    private const int UploadWaitMs = 15_000;
-
-    /// <summary>
-    /// How many times the send button is pressed before giving up on it.
-    /// </summary>
-    /// <remarks>
-    /// More than one because Eldorado's own upload dialog needs it: the first press is
-    /// swallowed and the picture stays put, by hand exactly as from here. Pressing again is
-    /// safe — the retry only happens while the attachment is demonstrably still sitting in
-    /// the composer, so a press that did work is never repeated.
-    /// </remarks>
-    private const int SendAttempts = 3;
-
-    private async Task SendAttachmentAsync(Target chat, CancellationToken ct)
-    {
-        for (var attempt = 1; attempt <= SendAttempts; attempt++)
-        {
-            await WaitForSendReadyAsync(chat, ct).ConfigureAwait(false);
-
-            var clicked = await EvalAsync(chat, ChatScripts.Compose(ChatScripts.ClickSend), ct)
+            var attached = await EvalAsync(chat, ChatScripts.Compose(ChatScripts.Attach, imageJson: image), ct)
                 .ConfigureAwait(false);
-
-            // Logged whether it worked or not: when the chat markup moves, this line is the
-            // difference between "the button was renamed" and "we pressed too early".
-            ApiLog.Write($"[chat] invio allegato {attempt}/{SendAttempts}: {Reason(clicked)}");
-
-            // The attachment leaving the composer is the only proof it went out — the click
-            // reports that the button was pressed, not that the chat did anything with it.
-            if (await WaitStagedClearedAsync(chat, 1_500, ct).ConfigureAwait(false))
+            if (attached is { } value && Flag(value, "ok"))
             {
-                if (attempt > 1)
-                {
-                    ApiLog.Write($"[chat] allegato partito al tentativo {attempt}");
-                }
-
-                return;
+                return Reason(attached);
             }
+
+            ApiLog.Write($"[chat] campo file: {Reason(attached)}");
         }
 
-        // Still there after every press: Enter as the last resort.
-        await EvalAsync(chat, ChatScripts.Compose(ChatScripts.Submit), ct).ConfigureAwait(false);
-        await Task.Delay(SendMs, ct).ConfigureAwait(false);
-    }
-
-    /// <summary>
-    /// Waits for the composer to let go of the staged attachment. True when it did, which is
-    /// what tells a press that worked from one the chat swallowed.
-    /// </summary>
-    private async Task<bool> WaitStagedClearedAsync(Target chat, int timeoutMs, CancellationToken ct)
-    {
-        var waited = 0;
-
-        while (true)
+        // The browser's own paste, which a chat that checks isTrusted still accepts.
+        if (await PasteBannerAsync(chat, path, ct).ConfigureAwait(false))
         {
-            if (await StagedAsync(chat, ct).ConfigureAwait(false) == 0)
-            {
-                return true;
-            }
-
-            if (waited >= timeoutMs)
-            {
-                return false;
-            }
-
-            await Task.Delay(200, ct).ConfigureAwait(false);
-            waited += 200;
+            await Task.Delay(SendMs, ct).ConfigureAwait(false);
+            return "incollato dagli appunti";
         }
+
+        return null;
     }
 
     /// <summary>
-    /// Waits for the chat to be willing to send. A file goes up in the background and the
-    /// send button stays greyed out until it lands — pressing during that window does
-    /// nothing at all, which is what made the bot look like it never pressed send.
+    /// Waits for the chat to release the send button, which is how it says the upload landed.
+    /// Returns how long that took; the cap stops a chat that never enables it from holding up
+    /// the messages that follow.
     /// </summary>
-    private async Task WaitForSendReadyAsync(Target chat, CancellationToken ct)
+    private async Task<int> WaitUploadDoneAsync(Target chat, CancellationToken ct)
     {
+        var script = ChatScripts.Compose(ChatScripts.SendState);
         var waited = 0;
+
         while (waited < UploadWaitMs)
         {
-            var state = await EvalAsync(chat, ChatScripts.Compose(ChatScripts.SendState), ct).ConfigureAwait(false);
-            if (state is null || !Flag(state.Value, "ok"))
-            {
-                return;   // nothing to read: let the click step report what it finds
-            }
+            var state = await EvalAsync(chat, script, ct).ConfigureAwait(false);
 
-            if (Flag(state.Value, "ready"))
+            // The upload panel can sit in a different frame than the conversation.
+            if (state is null || !Flag(state.Value, "ready"))
             {
-                if (waited > 0)
+                var other = await RunEverywhereAsync(script, ct).ConfigureAwait(false);
+                if (other is { } found && Flag(found, "ready"))
                 {
-                    ApiLog.Write($"[chat] upload finito dopo {waited} ms · pulsante \"{Text(state.Value, "label")}\"");
+                    state = found;
                 }
-
-                return;
             }
 
-            if (!Flag(state.Value, "waiting"))
+            if (state is { } ready && Flag(ready, "ready"))
             {
-                // No send button at all, disabled or otherwise: waiting cannot help.
-                ApiLog.Write("[chat] nessun pulsante di invio nella barra: si usa Invio");
-                return;
+                return waited;
             }
 
             await Task.Delay(250, ct).ConfigureAwait(false);
             waited += 250;
         }
 
-        ApiLog.Write($"[chat] upload ancora in corso dopo {UploadWaitMs} ms: premo comunque");
+        ApiLog.Write($"[chat] invio non sbloccato in {UploadWaitMs} ms: premo comunque");
+        return waited;
+    }
+
+    /// <summary>Presses send in the conversation's frame, then in every other one.</summary>
+    private async Task<JsonElement?> ClickSendAsync(Target chat, CancellationToken ct)
+    {
+        var script = ChatScripts.Compose(ChatScripts.ClickSend);
+
+        var here = await EvalAsync(chat, script, ct).ConfigureAwait(false);
+        if (here is { } value && Flag(value, "ok"))
+        {
+            return here;
+        }
+
+        return await RunEverywhereAsync(script, ct).ConfigureAwait(false) ?? here;
+    }
+
+    /// <summary>How many images the conversation shows above the composer; -1 when unreadable.</summary>
+    private async Task<int> ConversationImagesAsync(Target chat, CancellationToken ct)
+    {
+        var state = await EvalAsync(chat, ChatScripts.Compose(ChatScripts.PanelState), ct).ConfigureAwait(false);
+        return state is null || !Flag(state.Value, "ok") ? -1 : Number(state.Value, "images");
+    }
+
+    /// <summary>
+    /// Waits for one more image in the conversation than there was before - the only honest
+    /// proof the banner was sent, since the send step can report a pressed button but never a
+    /// delivered file.
+    /// </summary>
+    private async Task<bool> WaitImageAppearedAsync(
+        Target chat, int before, int timeoutMs, CancellationToken ct)
+    {
+        if (before < 0)
+        {
+            return false;   // no baseline to compare against: never claim success
+        }
+
+        var waited = 0;
+        while (waited < timeoutMs)
+        {
+            await Task.Delay(300, ct).ConfigureAwait(false);
+            waited += 300;
+
+            if (await ConversationImagesAsync(chat, ct).ConfigureAwait(false) > before)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// How long the upload gets before send is pressed anyway. Short, because this wait sits
+    /// in front of the text messages.
+    /// </summary>
+    private const int UploadWaitMs = 6_000;
+
+    /// <summary>
+    /// How many times send is pressed before giving up. More than one because Eldorado's own
+    /// upload dialog needs it: the first press is swallowed and the picture stays put. The
+    /// retry is safe - it only fires while the picture still has not appeared.
+    /// </summary>
+    private const int SendAttempts = 3;
+
+    /// <summary>
+    /// Writes what every frame looked like when the banner refused to go out, next to the
+    /// settings as <c>chat-allegato-fallito.json</c>. Overwritten each time: it is the state
+    /// of the last failure that matters, and this must never grow without bound.
+    /// </summary>
+    private async Task DumpFailureAsync(CancellationToken ct)
+    {
+        try
+        {
+            var report = await DiagnoseAsync(null, ct).ConfigureAwait(false);
+            var path = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                "EldoradoApp", "chat-allegato-fallito.json");
+
+            await File.WriteAllTextAsync(path, report, ct).ConfigureAwait(false);
+            ApiLog.Write($"[chat] stato della pagina salvato in {path}");
+        }
+        catch (Exception ex)
+        {
+            ApiLog.Write($"[chat] diagnostica dell'allegato non riuscita: {ex.Message}");
+        }
     }
 
     /// <summary>
@@ -653,37 +656,6 @@ public sealed class ChatBrowserMessenger(
                 // Another process can hold the clipboard open for a moment.
                 ApiLog.Write($"[chat] appunti occupati ({attempt + 1}/3): {ex.Message}");
                 Thread.Sleep(150);
-            }
-        }
-
-        return false;
-    }
-
-    /// <summary>Waits for the image to show up in the conversation; false when it never does.</summary>
-    private async Task<bool> BannerLandedAsync(Target chat, JsonElement? before, CancellationToken ct)
-    {
-        if (before is null || !Flag(before.Value, "ok"))
-        {
-            return false;   // no baseline to compare against: never claim success
-        }
-
-        var images = Number(before.Value, "images");
-        var links = Number(before.Value, "links");
-
-        // Uploads are not instant: give the conversation a few seconds to show the file.
-        for (var attempt = 0; attempt < 10; attempt++)
-        {
-            await Task.Delay(400, ct).ConfigureAwait(false);
-
-            var now = await EvalAsync(chat, ChatScripts.Compose(ChatScripts.PanelState), ct).ConfigureAwait(false);
-            if (now is null || !Flag(now.Value, "ok"))
-            {
-                continue;
-            }
-
-            if (Number(now.Value, "images") > images || Number(now.Value, "links") > links)
-            {
-                return true;
             }
         }
 
