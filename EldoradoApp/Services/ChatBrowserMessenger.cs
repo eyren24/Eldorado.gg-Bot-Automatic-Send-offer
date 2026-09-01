@@ -68,16 +68,12 @@ public sealed class ChatBrowserMessenger(
             _frames.Add(frame);
         }
 
-        frame.Destroyed += (sender, _) =>
-        {
-            if (sender is CoreWebView2Frame gone)
-            {
-                lock (_frames)
-                {
-                    _frames.Remove(gone);
-                }
-            }
-        };
+        // The frame this handler belongs to is captured directly rather than read off the
+        // sender: when the sender came back as something else the entry was never removed,
+        // and the list filled up with handles to frames of pages navigated away from. Every
+        // later step then talked to a dead iframe and got "cannot be accessed after the
+        // WebView2 control is disposed" — including the one carrying the banner.
+        frame.Destroyed += (_, _) => Forget(frame);
 
         // The chat composer usually lives one iframe deeper than the widget's own frame.
         try
@@ -87,6 +83,15 @@ public sealed class ChatBrowserMessenger(
         catch (NotImplementedException)
         {
             // Older WebView2 runtime: top-level frames only.
+        }
+    }
+
+    /// <summary>Drops a frame from the tracked list; safe to call more than once.</summary>
+    private void Forget(CoreWebView2Frame frame)
+    {
+        lock (_frames)
+        {
+            _frames.Remove(frame);
         }
     }
 
@@ -469,19 +474,15 @@ public sealed class ChatBrowserMessenger(
         return null;
     }
 
-    /// <summary>Presses send in the conversation's frame, then in every other one.</summary>
-    private async Task<JsonElement?> ClickSendAsync(Target chat, CancellationToken ct)
-    {
-        var script = ChatScripts.Compose(ChatScripts.ClickSend);
-
-        var here = await EvalAsync(chat, script, ct).ConfigureAwait(false);
-        if (here is { } value && Flag(value, "ok"))
-        {
-            return here;
-        }
-
-        return await RunEverywhereAsync(script, ct).ConfigureAwait(false) ?? here;
-    }
+    /// <summary>Presses send, in the conversation's own frame and nowhere else.</summary>
+    /// <remarks>
+    /// Deliberately not tried across every frame. Hunting a send-looking control through the
+    /// whole page is how a press landed on the upload dialog's Cancel and threw the picture
+    /// away: outside the conversation there is nothing that can legitimately send this
+    /// message, so there is nothing to look for there.
+    /// </remarks>
+    private async Task<JsonElement?> ClickSendAsync(Target chat, CancellationToken ct) =>
+        await EvalAsync(chat, ChatScripts.Compose(ChatScripts.ClickSend), ct).ConfigureAwait(false);
 
     /// <summary>How many images the conversation shows above the composer; -1 when unreadable.</summary>
     private async Task<int> ConversationImagesAsync(Target chat, CancellationToken ct)
@@ -525,11 +526,15 @@ public sealed class ChatBrowserMessenger(
     private const int BannerWaitMs = 6_000;
 
     /// <summary>
-    /// How many times send is pressed before giving up. More than one because Eldorado's own
-    /// upload dialog needs it: the first press is swallowed and the picture stays put. The
-    /// retry is safe - it only fires while the picture still has not appeared.
+    /// How many times send is pressed when the chat did not post the file on its own.
     /// </summary>
-    private const int SendAttempts = 3;
+    /// <remarks>
+    /// One. TalkJS uploads and posts the picture by itself, so this press is a fallback for a
+    /// chat that does not — and pressing repeatedly is what sometimes threw the picture away
+    /// instead of sending it. A single press either helps or does nothing; a volley can undo
+    /// an upload that had already worked.
+    /// </remarks>
+    private const int SendAttempts = 1;
 
     /// <summary>
     /// Writes what every frame looked like when the banner refused to go out, next to the
@@ -658,8 +663,14 @@ public sealed class ChatBrowserMessenger(
 
     // ----- page plumbing -------------------------------------------------------------
 
-    /// <summary>One document a script can run in: the top page or one of its frames.</summary>
-    private sealed record Target(string Label, Func<string, Task<string>> Run);
+    /// <summary>
+    /// One document a script can run in: the top page or one of its frames.
+    /// </summary>
+    /// <param name="Frame">
+    /// The iframe this runs in, or null for the top page. Carried so a handle that turns out
+    /// to be dead can be dropped from the tracked list the moment it throws.
+    /// </param>
+    private sealed record Target(string Label, Func<string, Task<string>> Run, CoreWebView2Frame? Frame = null);
 
     private sealed record Probed(Target Target, JsonElement Data)
     {
@@ -691,7 +702,7 @@ public sealed class ChatBrowserMessenger(
                 }
 
                 var label = string.IsNullOrEmpty(frame.Name) ? "iframe" : $"iframe «{frame.Name}»";
-                targets.Add(new Target(label, script => RunAsync(() => frame.ExecuteScriptAsync(script))));
+                targets.Add(new Target(label, script => RunAsync(() => frame.ExecuteScriptAsync(script)), frame));
             }
             catch (Exception ex)
             {
@@ -897,6 +908,14 @@ public sealed class ChatBrowserMessenger(
         catch (Exception ex)
         {
             ApiLog.Write($"[chat] {target.Label}: {ex.Message}");
+
+            // A frame that throws is gone for good: drop it so the next step does not spend
+            // another round trip talking to a page that no longer exists.
+            if (target.Frame is { } dead)
+            {
+                Forget(dead);
+            }
+
             return null;
         }
 
