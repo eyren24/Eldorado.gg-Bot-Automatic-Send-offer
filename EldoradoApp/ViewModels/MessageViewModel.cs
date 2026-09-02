@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.IO;
+using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using EldoradoApp.Models;
@@ -16,12 +17,24 @@ namespace EldoradoApp.ViewModels;
 public sealed partial class MessageViewModel : ObservableObject
 {
     private readonly SettingsHost _host;
+    private readonly PlaywrightOfferMessenger? _automation;
+    private readonly Dispatcher? _dispatcher;
     private bool _loading;
 
     private BoostingBotSettings Settings => _host.Settings;
     private OfferMessageSettings Config => Settings.Message;
+    private PlaywrightMessageOptions Options => Config.Playwright;
 
-    public Array Deliveries { get; } = Enum.GetValues(typeof(MessageDelivery));
+    /// <summary>
+    /// The combo shows a readable label per channel rather than the enum name; the seller
+    /// has to be able to tell "browser dedicato" from "browser integrato" at a glance.
+    /// </summary>
+    public IReadOnlyList<DeliveryChoice> Deliveries { get; } =
+    [
+        new(MessageDelivery.PlaywrightBrowser, "Browser dedicato (consigliato)"),
+        new(MessageDelivery.AutoBrowser, "Browser integrato (scheda Chat)"),
+        new(MessageDelivery.ClipboardOnly, "Solo appunti (manuale)")
+    ];
 
     /// <summary>Placeholder chips; clicking one appends it to the template.</summary>
     public ObservableCollection<PlaceholderChip> Placeholders { get; } = [];
@@ -43,22 +56,61 @@ public sealed partial class MessageViewModel : ObservableObject
     [ObservableProperty] private int _maxAttempts;
     [ObservableProperty] private string _chatScript = "";
 
+    // ---- Dedicated automation browser (Playwright) ----
+    [ObservableProperty] private bool _playwrightEnabled;
+    [ObservableProperty] private bool _playwrightHeadless;
+    [ObservableProperty] private string _playwrightProfilePath = "";
+    [ObservableProperty] private string _composerSelector = "";
+    [ObservableProperty] private string _sendButtonSelector = "";
+    [ObservableProperty] private string _fileInputSelector = "";
+    [ObservableProperty] private string _attachButtonSelector = "";
+
+    [ObservableProperty] private string _automationStatus = "";
+    [ObservableProperty] private bool _isOpeningAutomation;
+
+    /// <summary>True when the dedicated browser is the channel the bot will actually use.</summary>
+    public bool UsesAutomationBrowser => Delivery == MessageDelivery.PlaywrightBrowser;
+
     [ObservableProperty] private string _preview = "";
     [ObservableProperty] private string _bannerStatus = "Nessun banner selezionato";
     [ObservableProperty] private string _splitStatus = "";
     [ObservableProperty] private int _messageCount;
     [ObservableProperty] private bool _hasBanner;
 
-    public MessageViewModel(SettingsHost host)
+    public MessageViewModel(SettingsHost host, PlaywrightOfferMessenger? automation = null, Dispatcher? dispatcher = null)
     {
         _host = host;
+        _automation = automation;
+        _dispatcher = dispatcher;
 
         foreach (var (token, description) in OfferMessageComposer.Placeholders)
         {
             Placeholders.Add(new PlaceholderChip(token, description));
         }
 
+        if (_automation is not null)
+        {
+            AutomationStatus = _automation.Status;
+
+            // The messenger reports from whatever thread the browser answered on; the
+            // binding has to be updated on the UI thread or WPF tears the string apart.
+            _automation.StatusChanged += OnAutomationStatusChanged;
+        }
+
         Reload();
+    }
+
+    private void OnAutomationStatusChanged()
+    {
+        var status = _automation?.Status ?? "";
+
+        if (_dispatcher is null || _dispatcher.CheckAccess())
+        {
+            AutomationStatus = status;
+            return;
+        }
+
+        _dispatcher.BeginInvoke(() => AutomationStatus = status);
     }
 
     public void Reload()
@@ -79,6 +131,14 @@ public sealed partial class MessageViewModel : ObservableObject
             ChatUrl = Config.ChatUrl;
             MaxAttempts = Config.MaxAttempts;
             ChatScript = Config.ChatScript;
+
+            PlaywrightEnabled = Options.Enabled;
+            PlaywrightHeadless = Options.Headless;
+            PlaywrightProfilePath = Options.ProfilePath;
+            ComposerSelector = Options.ComposerSelector;
+            SendButtonSelector = Options.SendButtonSelector;
+            FileInputSelector = Options.FileInputSelector;
+            AttachButtonSelector = Options.AttachButtonSelector;
         }
         finally
         {
@@ -104,10 +164,32 @@ public sealed partial class MessageViewModel : ObservableObject
         Config.ChatUrl = string.IsNullOrWhiteSpace(ChatUrl) ? OfferMessageSettings.DefaultChatUrl : ChatUrl.Trim();
         Config.MaxAttempts = Math.Clamp(MaxAttempts, 1, 10);
         Config.ChatScript = ChatScript ?? "";
+
+        Options.Enabled = PlaywrightEnabled;
+        Options.Headless = PlaywrightHeadless;
+        Options.ProfilePath = (PlaywrightProfilePath ?? "").Trim();
+        Options.ComposerSelector = ComposerSelector ?? "";
+        Options.SendButtonSelector = SendButtonSelector ?? "";
+        Options.FileInputSelector = FileInputSelector ?? "";
+        Options.AttachButtonSelector = AttachButtonSelector ?? "";
     }
 
     partial void OnEnabledChanged(bool value) => ApplyAndPreview();
-    partial void OnDeliveryChanged(MessageDelivery value) => ApplyAndPreview();
+
+    partial void OnDeliveryChanged(MessageDelivery value)
+    {
+        OnPropertyChanged(nameof(UsesAutomationBrowser));
+        ApplyAndPreview();
+    }
+
+    partial void OnPlaywrightEnabledChanged(bool value) => ApplyAndPreview();
+    partial void OnPlaywrightHeadlessChanged(bool value) => ApplyAndPreview();
+    partial void OnPlaywrightProfilePathChanged(string value) => ApplyAndPreview();
+    partial void OnComposerSelectorChanged(string value) => ApplyAndPreview();
+    partial void OnSendButtonSelectorChanged(string value) => ApplyAndPreview();
+    partial void OnFileInputSelectorChanged(string value) => ApplyAndPreview();
+    partial void OnAttachButtonSelectorChanged(string value) => ApplyAndPreview();
+
     partial void OnTemplateChanged(string value) => ApplyAndPreview();
     partial void OnBannerPathChanged(string value) => ApplyAndPreview();
     partial void OnCopyToClipboardChanged(bool value) => ApplyAndPreview();
@@ -213,11 +295,59 @@ public sealed partial class MessageViewModel : ObservableObject
     [RelayCommand]
     private void ResetScript() => ChatScript = "";
 
+    /// <summary>
+    /// Opens the dedicated automation browser so the seller signs in to Eldorado once, in
+    /// the very profile the bot will reuse. Without this step the first delivery of the
+    /// session would land on a logged-out page and be reported as "chat non pronta".
+    /// </summary>
+    [RelayCommand]
+    private async Task OpenAutomationAsync()
+    {
+        if (_automation is null)
+        {
+            AutomationStatus = "Canale automatico non disponibile in questa finestra.";
+            return;
+        }
+
+        Apply();
+        _host.Save();
+
+        IsOpeningAutomation = true;
+
+        try
+        {
+            await _automation.OpenSessionAsync();
+        }
+        catch (Exception ex)
+        {
+            AutomationStatus = $"Browser non avviato: {ex.Message}";
+        }
+        finally
+        {
+            IsOpeningAutomation = false;
+        }
+    }
+
+    /// <summary>Puts the selectors back to the broad defaults after an experiment went wrong.</summary>
+    [RelayCommand]
+    private void ResetSelectors()
+    {
+        var defaults = new PlaywrightMessageOptions();
+        ComposerSelector = defaults.ComposerSelector;
+        SendButtonSelector = defaults.SendButtonSelector;
+        FileInputSelector = defaults.FileInputSelector;
+        AttachButtonSelector = defaults.AttachButtonSelector;
+    }
+
     [RelayCommand]
     private void Save()
     {
         Apply();
         _host.Save();
+
+        // Save normalises clamped numbers and empty selectors; read them back so the boxes
+        // show what the bot will really use rather than what was typed.
+        Reload();
     }
 
     /// <summary>Records an attempted delivery in the history list (newest first).</summary>
@@ -233,3 +363,6 @@ public sealed partial class MessageViewModel : ObservableObject
 
 /// <summary>A clickable {placeholder} chip.</summary>
 public sealed record PlaceholderChip(string Token, string Description);
+
+/// <summary>One entry of the delivery-channel combo: the enum value plus what to call it.</summary>
+public sealed record DeliveryChoice(MessageDelivery Value, string Label);

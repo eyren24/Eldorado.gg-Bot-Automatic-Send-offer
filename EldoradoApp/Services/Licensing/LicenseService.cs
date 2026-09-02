@@ -36,6 +36,13 @@ public sealed class LicenseService
 
     public bool IsValid => State == LicenseState.Valid;
 
+    /// <summary>
+    /// The already DPAPI-protected key is needed only to exchange a newly configured
+    /// server session for a revocable device token. It is internal so UI code cannot
+    /// accidentally display or log it.
+    /// </summary>
+    internal string? ActiveKeyForServerActivation => _stored?.Key;
+
     /// <summary>What the buyer sends over Discord to get a key minted for this PC.</summary>
     public string MachineId => HardwareId.Display;
 

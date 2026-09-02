@@ -23,11 +23,19 @@ public sealed partial class ShellViewModel : ObservableObject
     private readonly Dispatcher _dispatcher;
     private readonly AutoOfferEngine _engine;
     private readonly LicenseService _license;
+    private readonly PlaywrightOfferMessenger _playwright;
+    private readonly RemoteEntitlementService _remote;
 
     private CancellationTokenSource? _loopCts;
     private DispatcherTimer? _licenseTimer;
 
     public SettingsHost Host => _host;
+
+    /// <summary>The dedicated automation browser. Owned here so it outlives every page.</summary>
+    public PlaywrightOfferMessenger Automation => _playwright;
+
+    /// <summary>The optional server control plane. Always present, inert until an URL is set.</summary>
+    public RemoteEntitlementService Remote => _remote;
 
     public RequestsFeedViewModel Feed { get; }
     public PricingViewModel Pricing { get; }
@@ -158,15 +166,31 @@ public sealed partial class ShellViewModel : ObservableObject
         _dispatcher = Application.Current.Dispatcher;
         _host = new SettingsHost();
 
+        // Both of these are created before the pages that display them: they are session-wide
+        // singletons (one automation browser, one server session) that outlive every screen.
+        _playwright = new PlaywrightOfferMessenger(() => _host.Settings.Message);
+        _remote = new RemoteEntitlementService(() => _host.Settings.RemoteControl, PersistSettingsSilently);
+
+        // The offer loop and the messenger ask the gate rather than the service, so a remote
+        // suspension stops both without either of them ever holding the device token.
+        RemoteControlGate.Configure(_remote.AllowsAutomation, _remote.AllowsMessaging);
+
         Feed = new RequestsFeedViewModel(backend, _host);
         Pricing = new PricingViewModel(_host);
         Units = new UnitsViewModel(_host);
         Extras = new ExtrasViewModel(_host);
-        Message = new MessageViewModel(_host);
+        Message = new MessageViewModel(_host, _playwright, _dispatcher);
         Account = new AccountViewModel(backend, _host);
-        License = new LicenseViewModel(license);
+        License = new LicenseViewModel(license, _remote, _dispatcher);
 
-        Messages = new OfferMessageDispatcher(() => _host.Settings, new ClipboardOfferMessenger(_dispatcher));
+        Messages = new OfferMessageDispatcher(() => _host.Settings, new ClipboardOfferMessenger(_dispatcher))
+        {
+            // Wired here and not by a page: the Playwright channel must work even if the
+            // seller never opens the Chat tab, which is exactly the case the WebView2
+            // messenger could not cover.
+            PlaywrightPrimary = _playwright
+        };
+
         Messages.Delivered += record => _dispatcher.Invoke(() => Message.Record(record));
 
         _engine = backend.CreateAutoOfferEngine(() => _host.Settings, Messages);
@@ -193,8 +217,43 @@ public sealed partial class ShellViewModel : ObservableObject
         {
             _license.Refresh();
             _ = _license.RefreshRevocationAsync();
+
+            // The server verdict carries its own offline grace window, so it has to be
+            // renewed on the same rhythm: letting it lapse would stop a paying seller.
+            _ = _remote.RefreshAsync();
         };
         _licenseTimer.Start();
+    }
+
+    /// <summary>
+    /// Writes the settings to disk without raising <see cref="SettingsHost.Changed"/>.
+    /// The control plane persists its own verdict from a background thread; going through
+    /// <see cref="SettingsHost.Save"/> would push a change notification onto whatever
+    /// thread the HTTP call completed on.
+    /// </summary>
+    private void PersistSettingsSilently() => BoostingBotSettingsStore.Save(_host.Settings);
+
+    /// <summary>
+    /// Releases the two things that survive the window: the Chromium process started by
+    /// Playwright and the control plane's HTTP client. Without this the automation browser
+    /// stays running after the app is closed.
+    /// </summary>
+    public void Shutdown()
+    {
+        _loopCts?.Cancel();
+        _licenseTimer?.Stop();
+        RemoteControlGate.Reset();
+
+        try
+        {
+            _playwright.Dispose();
+        }
+        catch (Exception ex)
+        {
+            ApiLog.Write($"Playwright shutdown failed: {ex.Message}");
+        }
+
+        _remote.Dispose();
     }
 
     private void OnLicenseChanged() => _dispatcher.Invoke(() =>

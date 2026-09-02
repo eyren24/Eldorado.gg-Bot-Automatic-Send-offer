@@ -35,7 +35,8 @@
                         <WrapPanel Margin="0,14,0,0">
                             <ComboBox Width="250" Style="{StaticResource FieldCombo}"
                                       materialDesign:HintAssist.Hint="Modalità di invio"
-                                      ItemsSource="{Binding Deliveries}" SelectedItem="{Binding Delivery}" />
+                                      ItemsSource="{Binding Deliveries}" DisplayMemberPath="Label"
+                                      SelectedValuePath="Value" SelectedValue="{Binding Delivery}" />
                             <TextBox Width="150" Style="{StaticResource FieldBox}"
                                      materialDesign:HintAssist.Hint="Attesa prima (sec)"
                                      Text="{Binding DelaySeconds, UpdateSourceTrigger=LostFocus}" />
@@ -80,8 +81,52 @@
 
                         <Border Background="#22FFC857" CornerRadius="8" Padding="12,9" Margin="0,14,0,0">
                             <TextBlock Style="{StaticResource Hint}" Foreground="#FFE0A0"
-                                       Text="La chat di Eldorado è TalkJS e non ha un endpoint nell'API venditore: l'invio automatico avviene guidando la chat dentro la scheda «Chat» di questa app, dove devi essere loggato sul sito. Il bot apre da solo la conversazione del compratore cercando il suo nome nella lista; se non la trova o non è sicuro del destinatario non scrive niente e mette messaggio e banner negli appunti da incollare con Ctrl+V." />
+                                       Text="La chat di Eldorado è TalkJS e non ha un endpoint nell'API venditore: l'invio automatico avviene guidando un browser vero. Il bot apre la conversazione del compratore e, se non è sicuro del destinatario, non scrive niente e mette messaggio e banner negli appunti da incollare con Ctrl+V. Un invio già partito non viene mai ripetuto: se la chat non conferma, il messaggio resta segnato «da verificare»." />
                         </Border>
+                    </StackPanel>
+                </Border>
+
+                <!-- Dedicated automation browser -->
+                <Border Style="{StaticResource Card}"
+                        Visibility="{Binding UsesAutomationBrowser, Converter={StaticResource BoolToVis}}">
+                    <StackPanel>
+                        <TextBlock Text="BROWSER DEDICATO" Style="{StaticResource CardTitle}" />
+                        <TextBlock Style="{StaticResource Hint}" Margin="0,0,0,12"
+                                   Text="Una finestra di Edge separata, con il suo profilo, che resta collegata a Eldorado tra un avvio e l'altro. Aprila una volta e accedi al sito: da quel momento il bot scrive da solo, anche se non apri mai la scheda «Chat»." />
+
+                        <StackPanel Orientation="Horizontal">
+                            <ToggleButton Style="{StaticResource MaterialDesignSwitchToggleButton}"
+                                          IsChecked="{Binding PlaywrightEnabled}" VerticalAlignment="Center" />
+                            <TextBlock Text="Canale attivo" Margin="10,0,0,0" VerticalAlignment="Center"
+                                       FontSize="12.5" FontWeight="SemiBold" />
+                        </StackPanel>
+
+                        <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                            <ToggleButton Style="{StaticResource MaterialDesignSwitchToggleButton}"
+                                          IsChecked="{Binding PlaywrightHeadless}" VerticalAlignment="Center" />
+                            <StackPanel Margin="10,0,0,0" VerticalAlignment="Center">
+                                <TextBlock Text="Finestra nascosta" FontSize="12.5" />
+                                <TextBlock Style="{StaticResource Hint}" Margin="0,1,0,0"
+                                           Text="Lasciala spenta finché non hai verificato che l'invio funziona: a finestra nascosta non puoi accedere al sito." />
+                            </StackPanel>
+                        </StackPanel>
+
+                        <TextBox Margin="0,14,0,0" Style="{StaticResource FieldBox}" HorizontalAlignment="Stretch"
+                                 materialDesign:HintAssist.Hint="Cartella del profilo (vuoto = predefinita)"
+                                 Text="{Binding PlaywrightProfilePath, UpdateSourceTrigger=LostFocus}" />
+
+                        <Button HorizontalAlignment="Left" Margin="0,14,0,0" Height="34" Padding="16,0"
+                                Style="{StaticResource MaterialDesignOutlinedButton}"
+                                Command="{Binding OpenAutomationCommand}">
+                            <StackPanel Orientation="Horizontal">
+                                <materialDesign:PackIcon Kind="MicrosoftEdge" VerticalAlignment="Center" />
+                                <TextBlock Text="Apri browser automazione e accedi" Margin="8,0,0,0"
+                                           VerticalAlignment="Center" />
+                            </StackPanel>
+                        </Button>
+
+                        <TextBlock Style="{StaticResource Hint}" Margin="0,10,0,0" TextWrapping="Wrap"
+                                   Text="{Binding AutomationStatus}" />
                     </StackPanel>
                 </Border>
 

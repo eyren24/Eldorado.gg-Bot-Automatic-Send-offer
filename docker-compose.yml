@@ -1,0 +1,27 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: eldoradoapp
+      POSTGRES_USER: eldorado
+      POSTGRES_PASSWORD: change-me-before-production
+    ports:
+      - "5432:5432"
+    volumes:
+      - eldorado-postgres:/var/lib/postgresql/data
+
+  server:
+    build:
+      context: .
+      dockerfile: EldoradoApp.Server/Dockerfile
+    depends_on:
+      - postgres
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__Eldorado: Host=postgres;Port=5432;Database=eldoradoapp;Username=eldorado;Password=change-me-before-production
+      Admin__ApiKey: replace-with-a-long-random-admin-key
+    ports:
+      - "8080:8080"
+
+volumes:
+  eldorado-postgres:

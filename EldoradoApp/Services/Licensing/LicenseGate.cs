@@ -1,3 +1,5 @@
+using EldoradoApp.Services;
+
 namespace EldoradoApp.Services.Licensing;
 
 /// <summary>
@@ -44,7 +46,8 @@ public static class LicenseGate
                    && !RevocationList.IsRevoked(info.KeyId)
                    && !TamperGuard.PredatesIssue(info, now)
                    && !TamperGuard.IsSpent(info)
-                   && now < info.ExpiresAtUtc;
+                   && now < info.ExpiresAtUtc
+                   && RemoteControlGate.AllowsAutomation();
         }
         catch
         {
@@ -55,6 +58,6 @@ public static class LicenseGate
 
     /// <summary>What to tell the seller when <see cref="IsLicensed"/> said no.</summary>
     public const string Refusal =
-        "Licenza non valida o scaduta: il bot non invia offerte. " +
-        "Apri la scheda «Licenza» per rinnovare.";
+        "Licenza non valida, scaduta o non autorizzata dal server: il bot non invia offerte. " +
+        "Apri la scheda «Licenza» per controllare lo stato.";
 }

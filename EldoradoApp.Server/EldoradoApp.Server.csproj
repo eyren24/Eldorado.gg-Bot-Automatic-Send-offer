@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.3">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\EldoradoApp.Contracts\EldoradoApp.Contracts.csproj" />
+  </ItemGroup>
+
+  <!-- The exact signed-key parser is shared with the desktop app and offline key generator. -->
+  <ItemGroup>
+    <Compile Include="..\EldoradoApp\Models\LicenseInfo.cs" Link="Licensing\LicenseInfo.cs" />
+    <Compile Include="..\EldoradoApp\Services\Licensing\Base32.cs" Link="Licensing\Base32.cs" />
+    <Compile Include="..\EldoradoApp\Services\Licensing\LicenseCodec.cs" Link="Licensing\LicenseCodec.cs" />
+  </ItemGroup>
+
+</Project>

@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Windows;
+using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using EldoradoApp.Models;
@@ -16,15 +17,34 @@ namespace EldoradoApp.ViewModels;
 public sealed partial class LicenseViewModel : ObservableObject
 {
     private readonly LicenseService _license;
+    private readonly RemoteEntitlementService? _remote;
+    private readonly Dispatcher? _dispatcher;
 
     /// <summary>Raised when a key has just been accepted — the gate window closes on this.</summary>
     public event Action? Activated;
 
-    public LicenseViewModel(LicenseService license)
+    /// <summary>
+    /// The activation gate constructs this before the shell exists, so the control plane
+    /// is optional: without it the server card simply stays hidden.
+    /// </summary>
+    public LicenseViewModel(
+        LicenseService license,
+        RemoteEntitlementService? remote = null,
+        Dispatcher? dispatcher = null)
     {
         _license = license;
+        _remote = remote;
+        _dispatcher = dispatcher;
+
         _license.Changed += Sync;
+
+        if (_remote is not null)
+        {
+            _remote.Changed += OnRemoteChanged;
+        }
+
         Sync();
+        SyncRemote();
     }
 
     public LicenseService Service => _license;
@@ -55,6 +75,20 @@ public sealed partial class LicenseViewModel : ObservableObject
     [ObservableProperty] private string _copyHint = "";
 
     public bool IsLocked => !IsValid;
+
+    // ---- Optional server control plane ----
+
+    /// <summary>False in the activation gate, which has no control plane to talk to.</summary>
+    public bool HasRemote => _remote is not null;
+
+    [ObservableProperty] private string _serverUrl = "";
+    [ObservableProperty] private bool _requireServer;
+    [ObservableProperty] private bool _syncConfiguration = true;
+    [ObservableProperty] private string _serverStatus = "";
+    [ObservableProperty] private bool _isRemoteBusy;
+
+    /// <summary>True once a device token for the configured server is stored on this PC.</summary>
+    [ObservableProperty] private bool _hasDeviceSession;
 
     /// <summary>What the buyer sends over so a key can be minted for this PC.</summary>
     public string MachineId => _license.MachineId;
@@ -96,6 +130,112 @@ public sealed partial class LicenseViewModel : ObservableObject
             : info.IsDeviceLocked ? "Bloccata su questo PC" : "Valida su qualsiasi PC";
 
         OnPropertyChanged(nameof(MachineId));
+    }
+
+    /// <summary>The control plane answers on a background thread; the bindings live on the UI one.</summary>
+    private void OnRemoteChanged()
+    {
+        if (_dispatcher is null || _dispatcher.CheckAccess())
+        {
+            SyncRemote();
+            return;
+        }
+
+        _dispatcher.BeginInvoke(SyncRemote);
+    }
+
+    private void SyncRemote()
+    {
+        if (_remote is null)
+        {
+            return;
+        }
+
+        ServerUrl = _remote.BaseUrl;
+        RequireServer = _remote.IsRequired;
+        SyncConfiguration = _remote.SyncsConfiguration;
+        ServerStatus = _remote.StatusText;
+        HasDeviceSession = _remote.HasDeviceToken;
+    }
+
+    /// <summary>Stores the endpoint. Changing it deliberately drops the old device token.</summary>
+    [RelayCommand]
+    private void SaveServer()
+    {
+        if (_remote is null)
+        {
+            return;
+        }
+
+        _remote.Configure(ServerUrl, RequireServer, SyncConfiguration);
+        SyncRemote();
+        CopyHint = "Impostazioni server salvate ✓";
+    }
+
+    /// <summary>
+    /// Exchanges the licence already stored on this PC for a revocable device token. It
+    /// deliberately re-uses the stored key rather than asking for it again: the key the
+    /// server must see is the one this installation is actually running on.
+    /// </summary>
+    [RelayCommand]
+    private async Task ActivateOnServerAsync()
+    {
+        if (_remote is null)
+        {
+            return;
+        }
+
+        if (_license.ActiveKeyForServerActivation is not { Length: > 0 } key)
+        {
+            ServerStatus = "Attiva prima una licenza su questo PC, poi collegala al server.";
+            return;
+        }
+
+        _remote.Configure(ServerUrl, RequireServer, SyncConfiguration);
+
+        IsRemoteBusy = true;
+
+        try
+        {
+            var result = await _remote.ActivateAsync(key, _license.MachineId);
+            ServerStatus = result.Message;
+            HasDeviceSession = _remote.HasDeviceToken;
+        }
+        finally
+        {
+            IsRemoteBusy = false;
+        }
+    }
+
+    [RelayCommand]
+    private async Task RefreshServerAsync()
+    {
+        if (_remote is null)
+        {
+            return;
+        }
+
+        IsRemoteBusy = true;
+
+        try
+        {
+            var result = await _remote.RefreshAsync();
+            ServerStatus = result.Message;
+            HasDeviceSession = _remote.HasDeviceToken;
+        }
+        finally
+        {
+            IsRemoteBusy = false;
+        }
+    }
+
+    /// <summary>Drops the device token so this PC can be re-activated, or moved to another server.</summary>
+    [RelayCommand]
+    private void ForgetDeviceSession()
+    {
+        _remote?.ForgetDeviceSession();
+        SyncRemote();
+        CopyHint = "Sessione server rimossa da questo PC ✓";
     }
 
     [RelayCommand]

@@ -86,6 +86,37 @@ public sealed class ChatBrowserMessenger(
         }
     }
 
+    /// <summary>
+    /// The conversation's frame, looked up again when the one in hand has died.
+    /// </summary>
+    /// <remarks>
+    /// Pressing the request page's chat button makes TalkJS tear its iframe down and build a
+    /// new one, so the frame that answered the probe a moment ago can already be gone by the
+    /// time the banner is uploaded. A captured handle then fails for the rest of the
+    /// delivery — every step, hundreds of milliseconds apart, against a page that no longer
+    /// exists. Dropping it from the tracked list does not help: the target still holds it.
+    /// </remarks>
+    private async Task<Target> LiveChatAsync(Target current, string buyer, CancellationToken ct)
+    {
+        // A trivial script is the cheapest way to ask "are you still there?".
+        if (await EvalAsync(current, ChatScripts.Compose(ChatScripts.Pending), ct).ConfigureAwait(false) is not null)
+        {
+            return current;
+        }
+
+        ApiLog.Write($"[chat] {current.Label} non risponde piu': cerco di nuovo la conversazione");
+
+        var probes = await WaitForComposerAsync(buyer, 4_000, ct).ConfigureAwait(false);
+        var fresh = probes.FirstOrDefault(p => p.HasComposer)?.Target;
+        if (fresh is null)
+        {
+            return current;   // nothing better to offer; the caller reports what it finds
+        }
+
+        ApiLog.Write($"[chat] conversazione ritrovata in {fresh.Label}");
+        return fresh;
+    }
+
     /// <summary>Drops a frame from the tracked list; safe to call more than once.</summary>
     private void Forget(CoreWebView2Frame frame)
     {
@@ -116,14 +147,11 @@ public sealed class ChatBrowserMessenger(
             var settings = config();
             var result = await DeliverAsync(message, buyer, settings, cancellationToken).ConfigureAwait(false);
 
-            // A failed delivery can leave the browser parked on whatever the site redirected
-            // to. Put it back on the inbox so the Chat tab stays usable and the next message
-            // does not start from a stranded page.
-            if (result.Outcome != MessageOutcome.Sent)
-            {
-                await NavigateAsync(settings.ChatUrl, cancellationToken).ConfigureAwait(false);
-            }
-
+            // Deliberately no "park the browser back on the inbox" here. Every delivery opens
+            // by navigating to its own request page, so the parking bought nothing — and it
+            // is what the seller could see happening: a failed offer sent the browser to the
+            // messages dashboard, and the next one dragged it back to a request. Two page
+            // loads per cycle, purely to end up where the next step was going anyway.
             return result;
         }
         catch (OperationCanceledException)
@@ -161,10 +189,22 @@ public sealed class ChatBrowserMessenger(
         // racing a half-typed message.
         if (settings.AttachBanner && message.HasBanner)
         {
-            notes.Add(await SendBannerAsync(chat, message.BannerPath!, ct).ConfigureAwait(false));
+            // The chat button remounts the widget, so the frame picked a moment ago may
+            // already be gone. Check before every stage rather than once at the start.
+            chat = await LiveChatAsync(chat, buyer, ct).ConfigureAwait(false);
+
+            // Deliberately no retry on a fresh frame. It was tried: it doubled the work -
+            // another shrink, another upload, another eight seconds and another visible
+            // remount - and never once recovered a banner, because in that state the widget
+            // keeps tearing itself down. The cure is upstream, in not provoking the remount
+            // at all; see EmbeddedChatWaitMs.
+            var banner = await SendBannerAsync(chat, message.BannerPath!, ct).ConfigureAwait(false);
+            notes.Add(banner.Note);
         }
 
         // Then the text, back to back.
+        chat = await LiveChatAsync(chat, buyer, ct).ConfigureAwait(false);
+
         for (var i = 0; i < parts.Count; i++)
         {
             if (i > 0 && settings.BetweenMessagesMs > 0)
@@ -213,10 +253,15 @@ public sealed class ChatBrowserMessenger(
                     $"la richiesta non esiste piu': la pagina e' finita su {Shorten(landed)}"));
             }
 
-            probes = await ProbeAsync(buyer, ct).ConfigureAwait(false);
+            // The request page already carries the conversation — the "Live chat with buyer"
+            // panel further down — its iframe just needs a moment to mount. Waiting for it
+            // is what removes the detour the seller can watch happening: press the button,
+            // land on the messages dashboard, come back to the request. Probing once, right
+            // after the load, was always too early to see it.
+            probes = await WaitForComposerAsync(buyer, EmbeddedChatWaitMs, ct).ConfigureAwait(false);
             if (probes.Any(p => p.HasComposer))
             {
-                notes.Add("link diretto");
+                notes.Add("chat gia' nella pagina");
             }
             else
             {
@@ -234,7 +279,12 @@ public sealed class ChatBrowserMessenger(
                 // Hunting for a conversation list at this point was costing the full 15 s
                 // timeout on every single message: the chat that button opens has neither a
                 // list nor a filter, so the inbox wait could only ever run out.
-                probes = await WaitForComposerAsync(buyer, ct).ConfigureAwait(false);
+                // Let the widget finish tearing itself down first. Probing immediately after
+                // the press catches the frame on its way out, and that dying handle is the
+                // one the whole delivery then tries to talk to.
+                await Task.Delay(SettleMs, ct).ConfigureAwait(false);
+
+                probes = await WaitForComposerAsync(buyer, 8_000, ct).ConfigureAwait(false);
                 notes.Add($"chat aperta dalla richiesta ({Reason(pressed)})");
             }
         }
@@ -400,7 +450,7 @@ public sealed class ChatBrowserMessenger(
     /// the composer before and is now. A click reports that a button was pressed; the
     /// picture arriving is what says it worked.
     /// </remarks>
-    private async Task<string> SendBannerAsync(Target chat, string path, CancellationToken ct)
+    private async Task<(bool Sent, string Note)> SendBannerAsync(Target chat, string path, CancellationToken ct)
     {
         var before = await ConversationImagesAsync(chat, ct).ConfigureAwait(false);
 
@@ -409,7 +459,7 @@ public sealed class ChatBrowserMessenger(
         if (how is null)
         {
             await DumpFailureAsync(ct).ConfigureAwait(false);
-            return "banner NON caricato: la chat non ha accettato ne' il campo file ne' gli appunti";
+            return (false, "banner NON caricato: la chat non ha accettato ne' il campo file ne' gli appunti");
         }
 
         // 2 - WAIT FOR THE PICTURE, not for a button.
@@ -420,7 +470,7 @@ public sealed class ChatBrowserMessenger(
         // lost that the buyer had already received.
         if (await WaitImageAppearedAsync(chat, before, BannerWaitMs, ct).ConfigureAwait(false))
         {
-            return $"banner inviato ({how})";
+            return (true, $"banner inviato ({how})");
         }
 
         // 3 - PRESS SEND. Only for a chat that does not post the file on its own, and where
@@ -432,12 +482,12 @@ public sealed class ChatBrowserMessenger(
 
             if (await WaitImageAppearedAsync(chat, before, 1_500, ct).ConfigureAwait(false))
             {
-                return $"banner inviato ({how}, {attempt} pressioni)";
+                return (true, $"banner inviato ({how}, {attempt} pressioni)");
             }
         }
 
         await DumpFailureAsync(ct).ConfigureAwait(false);
-        return $"banner caricato ({how}) ma NON comparso in chat";
+        return (false, $"banner caricato ({how}) ma NON comparso in chat");
     }
 
     /// <summary>Gets the banner into the composer. Returns how it got there, or null.</summary>
@@ -746,16 +796,31 @@ public sealed class ChatBrowserMessenger(
     }
 
     /// <summary>
-    /// Polls until the composer the "chat with the buyer" button brings up has rendered.
+    /// How long the request page's own chat panel gets to mount before falling back to the
+    /// button that scrolls down to it.
     /// </summary>
     /// <remarks>
-    /// Short and quick on purpose: the conversation is already on screen, so this only has
+    /// Generous on purpose, and this is the single most important number here. Every
+    /// delivery that found the panel already on the page succeeded; every delivery that had
+    /// to press the button failed, because the press makes TalkJS tear its iframe down and
+    /// build a new one, and the banner upload then races a widget that is remounting under
+    /// it. Waiting is free - a press costs the whole attachment. The button stays only for a
+    /// request whose conversation genuinely does not exist yet.
+    /// </remarks>
+    private const int EmbeddedChatWaitMs = 12_000;
+
+    /// <summary>
+    /// Polls until the conversation's composer has rendered.
+    /// </summary>
+    /// <remarks>
+    /// Short and quick on purpose: the conversation is on the page already, so this only has
     /// to outlast the widget mounting. It replaces <see cref="WaitForInboxAsync"/> on this
     /// route, which waited for a list or a filter that a chat opened this way never has.
     /// </remarks>
-    private async Task<List<Probed>> WaitForComposerAsync(string buyer, CancellationToken ct)
+    private async Task<List<Probed>> WaitForComposerAsync(
+        string buyer, int timeoutMs, CancellationToken ct)
     {
-        var deadline = Environment.TickCount64 + 8_000;
+        var deadline = Environment.TickCount64 + timeoutMs;
 
         while (true)
         {

@@ -4,6 +4,10 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "EldoradoApp", "EldoradoApp\
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "EldoradoKeygen", "tools\EldoradoKeygen\EldoradoKeygen.csproj", "{B9B22C3A-C83A-4EC7-9968-3BE4575F8692}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "EldoradoApp.Contracts", "EldoradoApp.Contracts\EldoradoApp.Contracts.csproj", "{A126577D-38B6-4DD6-9A64-1213D417DC11}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "EldoradoApp.Server", "EldoradoApp.Server\EldoradoApp.Server.csproj", "{0C2C5DCB-C6FC-4EA8-B492-9E2E483958C6}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -18,5 +22,13 @@ Global
 		{B9B22C3A-C83A-4EC7-9968-3BE4575F8692}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{B9B22C3A-C83A-4EC7-9968-3BE4575F8692}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{B9B22C3A-C83A-4EC7-9968-3BE4575F8692}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A126577D-38B6-4DD6-9A64-1213D417DC11}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A126577D-38B6-4DD6-9A64-1213D417DC11}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A126577D-38B6-4DD6-9A64-1213D417DC11}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A126577D-38B6-4DD6-9A64-1213D417DC11}.Release|Any CPU.Build.0 = Release|Any CPU
+		{0C2C5DCB-C6FC-4EA8-B492-9E2E483958C6}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{0C2C5DCB-C6FC-4EA8-B492-9E2E483958C6}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{0C2C5DCB-C6FC-4EA8-B492-9E2E483958C6}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{0C2C5DCB-C6FC-4EA8-B492-9E2E483958C6}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal

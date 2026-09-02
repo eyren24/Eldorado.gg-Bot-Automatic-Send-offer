@@ -22,6 +22,9 @@ public enum MessageOutcome
     /// <summary>Staged on the clipboard for the seller to paste (fallback).</summary>
     Staged,
 
+    /// <summary>The browser may have sent it, but the page never gave reliable proof. Never retry automatically.</summary>
+    Unknown,
+
     Failed,
     Disabled
 }
@@ -31,11 +34,17 @@ public enum MessageOutcome
 /// Without it every such message costs three attempts with their waits, and the bot loop,
 /// which waits for the message before moving on, stalls for a minute per dead request.
 /// </param>
-public sealed record OfferMessageResult(MessageOutcome Outcome, string Detail, bool Permanent = false)
+public sealed record OfferMessageResult(
+    MessageOutcome Outcome,
+    string Detail,
+    bool Permanent = false,
+    bool Retryable = false)
 {
     public static OfferMessageResult Sent(string detail) => new(MessageOutcome.Sent, detail);
     public static OfferMessageResult Staged(string detail) => new(MessageOutcome.Staged, detail);
     public static OfferMessageResult Failed(string detail) => new(MessageOutcome.Failed, detail);
+    public static OfferMessageResult RetryableFailure(string detail) => new(MessageOutcome.Failed, detail, Retryable: true);
+    public static OfferMessageResult Unknown(string detail) => new(MessageOutcome.Unknown, detail);
 
     /// <summary>A failure there is no point retrying.</summary>
     public static OfferMessageResult Gone(string detail) => new(MessageOutcome.Failed, detail, Permanent: true);

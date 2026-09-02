@@ -51,6 +51,9 @@ public sealed class BoostingBotSettings
     /// <summary>The message + banner fired right after an offer is submitted.</summary>
     public OfferMessageSettings Message { get; set; } = new();
 
+    /// <summary>Optional ASP.NET Core control plane for subscriptions, licences and safe settings backup.</summary>
+    public RemoteControlSettings RemoteControl { get; set; } = new();
+
     /// <summary>Default delivery time when a category has no specific one.</summary>
     public BoostingDeliveryTime DefaultDeliveryTime { get; set; } = BoostingDeliveryTime.Day1;
 
@@ -166,6 +169,10 @@ public sealed class BoostingBotSettings
 
         Extras ??= [];
         Message ??= new OfferMessageSettings();
+        Message.Playwright ??= new PlaywrightMessageOptions();
+        Message.Playwright.Normalize();
+        RemoteControl ??= new RemoteControlSettings();
+        RemoteControl.Normalize();
         CategoryPrices ??= [];
         AcceptedRegions ??= [];
 
